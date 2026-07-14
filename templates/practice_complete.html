@@ -1,0 +1,7 @@
+{% extends 'base.html' %}{% block title %}练习完成 · I Love Learning{% endblock %}{% block content %}
+<section class="card empty" style="max-width:680px;margin:8vh auto 0">
+  <div class="quick-icon" style="margin:0 auto 16px">✓</div><div class="eyebrow">完成一组</div><h1>{{ '复习完成' if mode=='review' else '练习完成' }}</h1>
+  <p>已完成 {{ total }} 道题，掌握度和下次复习日期都已更新。花一分钟记住刚才最容易错的那个点。</p>
+  <div class="actions" style="justify-content:center;margin-top:22px"><a class="button" href="{{ url_for('review') if mode=='review' else url_for('practice') }}">再来一组</a><a class="button secondary" href="{{ url_for('progress') }}">查看学习进度</a><a class="button ghost" href="{{ url_for('dashboard') }}">回到今天</a></div>
+</section>
+{% endblock %}

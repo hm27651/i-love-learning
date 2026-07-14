@@ -1,0 +1,43 @@
+{% extends 'base.html' %}{% block title %}题库 · I Love Learning{% endblock %}
+{% macro pager(page,pages,nav_args) %}
+<nav class="question-pager" aria-label="题库分页，第 {{ page }} / {{ pages }} 页">
+  {% if page>1 %}<a class="button small secondary" href="{{ url_for('questions',page=page-1,**nav_args) }}">← 上一页</a>{% else %}<span class="button small secondary disabled" aria-disabled="true">← 上一页</span>{% endif %}
+  <form class="page-jump" method="get">
+    {% for key,value in nav_args.items() %}{% if value %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endif %}{% endfor %}
+    <label><span class="muted">第</span><input type="number" name="page" min="1" max="{{ pages }}" value="{{ page }}" inputmode="numeric" aria-label="输入页码"><span class="muted">/ {{ pages }} 页</span></label>
+    <button class="small secondary" type="submit">跳转</button>
+  </form>
+  {% if page<pages %}<a class="button small secondary" href="{{ url_for('questions',page=page+1,**nav_args) }}">下一页 →</a>{% else %}<span class="button small secondary disabled" aria-disabled="true">下一页 →</span>{% endif %}
+</nav>
+{% endmacro %}
+{% block content %}
+<div class="page-head"><div><div class="eyebrow">管理 · {{ total }} 道{% if request.args.get('import_batch_id') %} · 导入批次{% endif %}</div><h1>题库</h1><div class="lead">草稿先审核，已核验题才会进入练习、模拟与正式统计。</div></div><div class="actions"><a class="button secondary" href="{{ url_for('question_review',question_id=questions[0].id,status=request.args.get('status','draft'),q=request.args.get('q',''),type=request.args.get('type',''),subject_id=request.args.get('subject_id',''),chapter_id=request.args.get('chapter_id',''),import_batch_id=request.args.get('import_batch_id',''),classification=request.args.get('classification',''),page=page) if questions else '#' }}">进入审核工作台</a><a class="button" href="{{ url_for('question_form') }}">＋ 录入题目</a></div></div>
+
+<details class="filter-panel" data-mobile-filter open>
+  <summary>筛选题库</summary>
+  <form class="filterbar five">
+    {% if request.args.get('import_batch_id') %}<input type="hidden" name="import_batch_id" value="{{ request.args.get('import_batch_id') }}">{% endif %}{% if request.args.get('classification') %}<input type="hidden" name="classification" value="{{ request.args.get('classification') }}">{% endif %}
+    <input name="q" value="{{ request.args.get('q','') }}" placeholder="搜索题干或解析">
+    <select name="status"><option value="">全部状态</option>{% for k,v in STATUS_NAMES.items() %}<option value="{{ k }}" {% if request.args.get('status')==k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+    <select name="type"><option value="">全部题型</option>{% for k,v in TYPE_NAMES.items() %}<option value="{{ k }}" {% if request.args.get('type')==k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
+    <select name="subject_id"><option value="">全部科目</option>{% for s in subjects %}<option value="{{ s.id }}" {% if request.args.get('subject_id')==s.id|string %}selected{% endif %}>{{ s.exam_code or s.name }}</option>{% endfor %}</select>
+    <select name="chapter_id"><option value="">全部章节</option>{% for c in chapters %}<option value="{{ c.id }}" {% if request.args.get('chapter_id')==c.id|string %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>
+    <button>筛选</button>
+  </form>
+</details>
+{% set nav_args = {'q':request.args.get('q',''),'status':request.args.get('status',''),'type':request.args.get('type',''),'subject_id':request.args.get('subject_id',''),'chapter_id':request.args.get('chapter_id',''),'import_batch_id':request.args.get('import_batch_id',''),'classification':request.args.get('classification','')} %}
+{{ pager(page,pages,nav_args) }}
+
+<form method="post" action="{{ url_for('questions_bulk') }}">
+  <input type="hidden" name="return_to" value="{{ request.full_path }}">
+  <div class="bulkbar"><span class="muted">本页最多显示 50 道题</span><div class="bulk-actions"><span>已选 <b data-selected-count>0</b> 道</span><select name="action" aria-label="批量操作"><option value="verified">标记已核验</option><option value="draft">退回草稿</option><option value="archived">归档</option><option value="move">移动到知识点</option></select><select name="target_point_id" aria-label="目标知识点"><option value="">选择目标知识点</option>{% for p in points %}<option value="{{ p.id }}">{{ p.subject_name }} / {{ p.chapter_name }} / {{ p.name }}</option>{% endfor %}</select><button class="small" data-confirm="确定批量更新所选题目吗？">应用</button></div></div>
+  <div class="table-wrap question-table"><table><thead><tr><th><input type="checkbox" data-check-all=".question-table input[name=question_id]"></th><th>题目</th><th>归属</th><th>题型</th><th>状态</th><th>掌握</th><th>操作</th></tr></thead><tbody>
+    {% for q in questions %}<tr><td><input type="checkbox" name="question_id" value="{{ q.id }}"></td><td><b>#{{ q.id }}</b> {{ q.stem|truncate(76) }}</td><td>{{ q.subject_name }}<br><small class="muted">{{ q.chapter_name }} / {{ q.knowledge_point_name }}</small></td><td>{{ TYPE_NAMES[q.type] }}</td><td><span class="badge {{ q.status }}">{{ STATUS_NAMES[q.status] }}</span></td><td>{{ q.mastery_level }}/4{% if q.error_count %}<br><small class="bad">错 {{ q.error_count }} 次</small>{% endif %}</td><td><div class="actions"><a class="button small secondary" href="{{ url_for('question_review',question_id=q.id,page=page,**nav_args) }}">审核</a><a class="button small ghost" href="{{ url_for('question_form',question_id=q.id) }}">编辑</a></div></td></tr>
+    {% else %}<tr><td colspan="7" class="empty">当前筛选下没有题目。</td></tr>{% endfor %}
+  </tbody></table></div>
+</form>
+
+<div class="question-mobile-list">{% for q in questions %}<article class="question-card-mobile"><div class="split"><span><b>#{{ q.id }}</b> · {{ TYPE_NAMES[q.type] }}</span><span class="badge {{ q.status }}">{{ STATUS_NAMES[q.status] }}</span></div><div class="stem">{{ q.stem|truncate(130) }}</div><div class="meta">{{ q.subject_name }} / {{ q.chapter_name }} / {{ q.knowledge_point_name }}</div><div class="actions" style="margin-top:12px"><a class="button small secondary" href="{{ url_for('question_review',question_id=q.id,page=page,**nav_args) }}">查看并审核</a><a class="button small ghost" href="{{ url_for('question_form',question_id=q.id) }}">编辑</a></div></article>{% else %}<div class="card empty">当前筛选下没有题目。</div>{% endfor %}</div>
+
+{{ pager(page,pages,nav_args) }}
+{% endblock %}

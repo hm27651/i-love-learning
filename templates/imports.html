@@ -1,0 +1,9 @@
+{% extends 'base.html' %}{% block title %}导入中心 · I Love Learning{% endblock %}{% block content %}
+<div class="page-head"><div><div class="eyebrow">通用题库</div><h1>导入中心</h1><div class="lead">支持结构化 PDF、DOCX 和固定模板 XLSX、CSV；所有题目先进入草稿。</div></div><div class="actions"><a class="button secondary" href="{{ url_for('questions',classification='uncategorized',status='draft') }}">审核待分类题</a><a class="button secondary" href="{{ url_for('import_template',file_type='xlsx') }}">下载 XLSX 模板</a><a class="button secondary" href="{{ url_for('import_template',file_type='csv') }}">下载 CSV 模板</a></div></div>
+<form method="post" enctype="multipart/form-data" class="card form-grid">
+  <div class="field full"><label>选择题库文件</label><input type="file" name="file" required accept=".pdf,.docx,.xlsx,.csv"><small>单文件上限 {{ cfg.max_import_mb }}MB。PDF/DOCX 必须具有可复制的结构化文本，不做 OCR。</small></div>
+  <div class="field full"><div class="danger-note">DOC、XLS、扫描版 PDF 和未知版式会停止导入并生成异常信息，不会写入部分题目。</div></div>
+  <div class="field full"><button>上传并开始探测</button></div>
+</form>
+<section class="card section-gap"><h2>最近导入任务</h2><div class="table-wrap"><table><thead><tr><th>文件</th><th>阶段</th><th>进度</th><th>题目</th><th>操作</th></tr></thead><tbody>{% for job in jobs %}<tr><td><b>{{ job.original_name }}</b><br><small>{{ job.file_type|upper }} · {{ job.created_at }}</small></td><td><span class="badge {{ 'verified' if job.status in ['ready','committed'] else 'draft' if job.status in ['queued','running','waiting_target'] else 'archived' }}">{{ job.status }}</span><br><small>{{ job.message }}</small></td><td>{{ job.progress }}%</td><td>{{ job.candidate_count }}</td><td><a class="button small secondary" href="{{ url_for('import_detail',job_id=job.id) }}">查看</a></td></tr>{% else %}<tr><td colspan="5" class="empty">还没有导入任务。</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

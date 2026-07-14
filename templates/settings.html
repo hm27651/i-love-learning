@@ -1,0 +1,19 @@
+{% extends 'base.html' %}{% block title %}设置 · I Love Learning{% endblock %}{% block content %}
+<div class="page-head"><div><h1>设置与数据</h1><div class="lead">当前项目：{{ project.name }}。准备度阈值是个人判断，不代表任何官方标准。</div></div><a class="button secondary" href="{{ url_for('project_form',project_id=project.id) }}">项目与模块设置</a></div>
+<div class="grid cols-2"><form method="post" class="card form-grid">
+  <div class="field"><label>模拟成绩门槛（%）</label><input type="number" name="mock_threshold" value="{{ cfg.mock_threshold }}"></div>
+  <div class="field"><label>核心章节门槛（%）</label><input type="number" name="chapter_threshold" value="{{ cfg.chapter_threshold }}"></div>
+  <div class="field"><label>{{ project.practice_alias }}完成门槛（%）</label><input type="number" name="task_threshold" value="{{ cfg.task_threshold }}"></div>
+  <div class="field"><label>有效模拟题量</label><input type="number" name="qualifying_count" value="{{ cfg.qualifying_count }}"></div>
+  <div class="field"><label>有效模拟时限（分钟）</label><input type="number" name="qualifying_minutes" value="{{ cfg.qualifying_minutes }}"></div>
+  <div class="field"><label>掌握等级间隔（天，全局）</label><input name="intervals" value="{{ cfg.intervals }}"><small>依次对应 1–4 级，例如 3,7,14,30</small></div>
+  <div class="field"><label>导入文件上限（MB，全局）</label><input type="number" min="1" max="500" name="max_import_mb" value="{{ cfg.max_import_mb }}"></div>
+  <div class="field full"><label>准备度门槛</label><div class="grid cols-3">
+    <label class="checkline"><input type="checkbox" name="gate_mock_enabled" {{ 'checked' if cfg.gate_mock_enabled=='1' }} {{ 'disabled' if not modules.mock }}>模拟成绩</label>
+    <label class="checkline"><input type="checkbox" name="gate_chapter_enabled" {{ 'checked' if cfg.gate_chapter_enabled=='1' }}>核心章节</label>
+    <label class="checkline"><input type="checkbox" name="gate_task_enabled" {{ 'checked' if cfg.gate_task_enabled=='1' }} {{ 'disabled' if not modules.tasks }}>{{ project.practice_alias }}</label>
+  </div></div>
+  <div class="field full"><button>保存设置</button></div>
+</form>
+<section class="card stack"><div><h2>手机访问地址</h2><div class="pre">{{ lan_url }}</div></div><div><h2>数据目录</h2><div class="pre">{{ data_dir }}</div></div><div><h2>手工备份与恢复</h2><ol><li>关闭软件窗口。</li><li>完整复制上面的 <code>data</code> 目录到安全位置。</li><li>恢复时关闭软件，用备份目录替换当前目录，再重新启动。</li></ol><p class="danger-note">项目永久删除前会自动备份；不要把局域网端口映射到公网。</p></div></section></div>
+{% endblock %}

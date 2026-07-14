@@ -1,0 +1,14 @@
+{% extends 'base.html' %}{% block title %}项目管理 · I Love Learning{% endblock %}{% block content %}
+<div class="page-head"><div><div class="eyebrow">学习边界</div><h1>学习项目</h1><div class="lead">每个项目拥有独立的科目、题库、练习进度、模拟和实践记录。</div></div><a class="button" href="{{ url_for('project_form') }}">新建学习项目</a></div>
+<div class="grid cols-2">
+{% for p in projects %}<article class="card project-card {{ p.status }}">
+  <div class="split"><div><span class="badge {{ 'verified' if p.status=='active' else 'archived' }}">{{ '使用中' if p.status=='active' else '已归档' }}</span><h2>{{ p.name }}</h2></div><b>{{ PROJECT_TYPE_NAMES[p.project_type] }}</b></div>
+  <p class="muted">{{ p.description or '暂无项目说明' }}</p>
+  <div class="stat-strip"><div><strong>{{ p.subject_count }}</strong><small>科目</small></div><div><strong>{{ p.question_count }}</strong><small>题目</small></div><div><strong>{{ p.duration_weeks }}</strong><small>计划周数</small></div></div>
+  <div class="actions"><a class="button small secondary" href="{{ url_for('project_form',project_id=p.id) }}">编辑设置</a>
+  {% if p.status=='active' %}<form method="post" action="{{ url_for('switch_project') }}"><input type="hidden" name="project_id" value="{{ p.id }}"><input type="hidden" name="return_to" value="/"><button class="small">切换到此项目</button></form><form method="post" action="{{ url_for('project_archive',project_id=p.id) }}"><button class="small ghost">归档</button></form>
+  {% else %}<form method="post" action="{{ url_for('project_restore',project_id=p.id) }}"><button class="small">恢复项目</button></form>{% endif %}</div>
+  {% if p.status=='archived' %}<details class="section-gap"><summary class="bad">永久删除</summary><form method="post" action="{{ url_for('project_delete',project_id=p.id) }}" class="stack" style="margin-top:12px"><div class="danger-note">删除前会自动备份完整 data 目录。此操作会移除项目中的题目、进度和原始导入记录。</div><label>输入“永久删除”确认<input name="confirmation" autocomplete="off"></label><button class="danger">永久删除项目</button></form></details>{% endif %}
+</article>{% endfor %}
+</div>
+{% endblock %}

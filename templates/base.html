@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>{% block title %}I Love Learning{% endblock %}</title>
+  <script>document.documentElement.dataset.theme=localStorage.getItem('study-theme')||localStorage.getItem('h3cse-theme')||'system';document.documentElement.classList.toggle('sidebar-collapsed',(localStorage.getItem('study-sidebar')||localStorage.getItem('h3cse-sidebar'))==='collapsed')</script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='refinements.css') }}">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <a class="brand" href="{{ url_for('dashboard') }}" aria-label="I Love Learning 首页">
+          <span class="brand-mark"><i></i><i></i><i></i></span>
+          <span class="brand-copy"><b>I Love Learning</b><small>个人学习台</small></span>
+        </a>
+        <button class="icon-button sidebar-toggle" type="button" data-sidebar-toggle aria-label="收起侧栏">‹</button>
+      </div>
+      <form class="project-switcher" method="post" action="{{ url_for('switch_project') }}">
+        <input type="hidden" name="return_to" value="{{ request.full_path if request.query_string else request.path }}">
+        <label for="sidebar-project">当前项目</label>
+        <select id="sidebar-project" name="project_id" onchange="this.form.submit()">{% for p in available_projects %}<option value="{{ p.id }}" {{ 'selected' if p.id==current_project.id }}>{{ p.name }}</option>{% endfor %}</select>
+      </form>
+      <nav class="side-nav" aria-label="主导航">
+        <div class="nav-group">
+          <div class="nav-label">学习</div>
+          <a class="nav-item {{ 'active' if request.endpoint=='dashboard' }}" href="{{ url_for('dashboard') }}"><span class="nav-icon">今</span><span>今天</span></a>
+          <a class="nav-item {{ 'active' if request.endpoint in ['practice','practice_run'] }}" href="{{ url_for('practice') }}"><span class="nav-icon">练</span><span>章节练习</span></a>
+          <a class="nav-item {{ 'active' if request.endpoint=='review' }}" href="{{ url_for('review') }}"><span class="nav-icon">复</span><span>错题复习{% if global_due_count %} · {{ global_due_count }}{% endif %}</span></a>
+          {% if current_modules.mock %}<a class="nav-item {{ 'active' if request.endpoint in ['mock_setup','mock_exam'] }}" href="{{ url_for('mock_setup') }}"><span class="nav-icon">模</span><span>模拟考试</span></a>{% endif %}
+          <a class="nav-item {{ 'active' if request.endpoint=='progress' }}" href="{{ url_for('progress') }}"><span class="nav-icon">析</span><span>学习进度</span></a>
+        </div>
+        {% if current_modules.tasks or current_modules.plan %}<div class="nav-group">
+          <div class="nav-label">实践</div>
+          {% if current_modules.tasks %}<a class="nav-item {{ 'active' if request.endpoint in ['labs','lab_form'] }}" href="{{ url_for('labs') }}"><span class="nav-icon">验</span><span>{{ current_project.practice_alias }}</span></a>{% endif %}
+          {% if current_modules.plan %}<a class="nav-item {{ 'active' if request.endpoint=='plans' }}" href="{{ url_for('plans') }}"><span class="nav-icon">周</span><span>学习计划</span></a>{% endif %}
+        </div>{% endif %}
+        <div class="nav-group">
+          <div class="nav-label">管理</div>
+          <a class="nav-item {{ 'active' if request.endpoint in ['questions','question_form','question_review'] }}" href="{{ url_for('questions') }}"><span class="nav-icon">题</span><span>题库</span></a>
+          <a class="nav-item {{ 'active' if request.endpoint in ['knowledge','toggle_core','knowledge_rename'] }}" href="{{ url_for('knowledge') }}"><span class="nav-icon">树</span><span>知识树</span></a>
+          <a class="nav-item {{ 'active' if request.endpoint in ['imports_center','import_detail'] }}" href="{{ url_for('imports_center') }}"><span class="nav-icon">导</span><span>导入中心</span></a>
+          <a class="nav-item {{ 'active' if request.endpoint in ['projects','project_form'] }}" href="{{ url_for('projects') }}"><span class="nav-icon">项</span><span>项目管理</span></a>
+          <a class="nav-item {{ 'active' if request.endpoint=='app_settings' }}" href="{{ url_for('app_settings') }}"><span class="nav-icon">设</span><span>设置</span></a>
+        </div>
+      </nav>
+      <div class="sidebar-foot">
+        <button class="theme-toggle" type="button" data-theme-toggle><span class="nav-icon">◐</span><span data-theme-label>跟随系统</span></button>
+        <p>个人学习工具<br>非官方考试标准</p>
+      </div>
+    </aside>
+
+    <div class="app-frame">
+      <header class="mobile-topbar">
+        <a class="mobile-brand" href="{{ url_for('dashboard') }}"><span class="brand-mark"><i></i><i></i><i></i></span><b>I Love Learning</b></a>
+        <form class="mobile-project-switcher" method="post" action="{{ url_for('switch_project') }}"><input type="hidden" name="return_to" value="{{ request.path }}"><select name="project_id" aria-label="切换学习项目" onchange="this.form.submit()">{% for p in available_projects %}<option value="{{ p.id }}" {{ 'selected' if p.id==current_project.id }}>{{ p.name }}</option>{% endfor %}</select></form>
+        <button class="icon-button" type="button" data-theme-toggle aria-label="切换主题">◐</button>
+      </header>
+      <main class="container" id="main-content">
+        {% for category,message in get_flashed_messages(with_categories=true) %}<div class="flash {{ category }}" role="status">{{ message }}</div>{% endfor %}
+        {% block content %}{% endblock %}
+      </main>
+      <footer class="app-footer">个人局域网学习工具 · 学习统计不代表任何官方考试标准</footer>
+    </div>
+  </div>
+
+  <nav class="mobile-nav" aria-label="手机导航">
+    <a class="{{ 'active' if request.endpoint=='dashboard' }}" href="{{ url_for('dashboard') }}"><span>今</span><small>今天</small></a>
+    <a class="{{ 'active' if request.endpoint in ['practice','practice_run'] }}" href="{{ url_for('practice') }}"><span>练</span><small>练习</small></a>
+    <a class="{{ 'active' if request.endpoint=='review' }}" href="{{ url_for('review') }}"><span>复</span><small>复习</small></a>
+    <a class="{{ 'active' if request.endpoint=='progress' }}" href="{{ url_for('progress') }}"><span>析</span><small>进度</small></a>
+    <button type="button" data-more-toggle><span>•••</span><small>更多</small></button>
+  </nav>
+
+  <div class="sheet-backdrop" data-more-close></div>
+  <aside class="more-sheet" aria-hidden="true" aria-label="更多功能">
+    <div class="sheet-handle"></div><div class="sheet-title"><b>更多功能</b><button class="icon-button" data-more-close aria-label="关闭">×</button></div>
+    <div class="more-grid">
+      {% if current_modules.mock %}<a href="{{ url_for('mock_setup') }}"><span>模</span>模拟考试</a>{% endif %}{% if current_modules.tasks %}<a href="{{ url_for('labs') }}"><span>验</span>{{ current_project.practice_alias }}</a>{% endif %}
+      {% if current_modules.plan %}<a href="{{ url_for('plans') }}"><span>周</span>学习计划</a>{% endif %}<a href="{{ url_for('questions') }}"><span>题</span>题库管理</a>
+      <a href="{{ url_for('knowledge') }}"><span>树</span>知识树</a><a href="{{ url_for('imports_center') }}"><span>导</span>导入中心</a>
+      <a href="{{ url_for('projects') }}"><span>项</span>项目管理</a><a href="{{ url_for('app_settings') }}"><span>设</span>设置</a>
+    </div>
+  </aside>
+
+  <dialog class="image-dialog" data-image-dialog><button class="icon-button" data-image-close aria-label="关闭大图">×</button><img alt="题目大图"></dialog>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

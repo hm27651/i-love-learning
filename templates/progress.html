@@ -1,0 +1,40 @@
+{% extends 'base.html' %}{% block title %}学习进度 · I Love Learning{% endblock %}
+{% block content %}
+<div class="page-head"><div><div class="eyebrow">数据只为下一步服务</div><h1>学习进度</h1><div class="lead">看趋势、找弱项，再决定下一组题和下一个实验。</div></div><span class="badge">连续学习 {{ streak }} 天</span></div>
+
+<div class="grid cols-2">
+  <section class="card">
+    <div class="split"><div><h2>30 天答题趋势</h2><div class="muted">绿色为正确，红色为错误；主观题自评只计总量。</div></div></div>
+    <div class="trend-chart">{% for x in trend %}<div class="trend-column" data-tip="{{ x.label }} · 共 {{ x.total }} / 错 {{ x.wrong }}"><i style="height:{{ x.correct_height }}%"></i><i class="wrong" style="height:{{ x.wrong_height }}%"></i></div>{% endfor %}</div>
+    <div class="chart-legend"><span><i></i>正确</span><span class="wrong"><i></i>错误</span></div>
+  </section>
+  {% if current_modules.readiness %}<section class="card">
+    <h2>项目准备度</h2>
+    <div class="readiness-hero">
+      <div class="readiness-ring" style="--value:{{ (readiness.gate_count * 100 / readiness.active_gate_count)|round if readiness.active_gate_count else 0 }}"><b>{{ readiness.gate_count }}/{{ readiness.active_gate_count }}</b></div>
+      <div><h3>{{ '当前门槛均已达标' if readiness.ready else '还有门槛未完成' }}</h3><div class="muted">这是个人学习判断，不代表任何官方标准。</div></div>
+    </div>
+    <div class="readiness-list section-gap">
+      {% if readiness.active_gates.mock %}<div class="readiness-item {{ 'ok' if readiness.mock_ok }}"><i class="readiness-dot"></i><span>连续三次有效模拟</span><b>{{ readiness.scores|join(' / ') if readiness.scores else '暂无' }}{% if readiness.scores %}%{% endif %}</b></div>{% endif %}
+      {% if readiness.active_gates.chapter %}<div class="readiness-item {{ 'ok' if readiness.chapter_ok }}"><i class="readiness-dot"></i><span>核心章节掌握度</span><b>{{ '达标' if readiness.chapter_ok else '补弱中' }}</b></div>{% endif %}
+      {% if readiness.active_gates.task %}<div class="readiness-item {{ 'ok' if readiness.lab_ok }}"><i class="readiness-dot"></i><span>{{ project.practice_alias }}完成率</span><b>{{ readiness.lab_rate }}%</b></div>{% endif %}
+    </div>
+  </section>{% else %}<section class="card"><h2>{{ project.name }}</h2><p class="muted">当前项目未启用准备度模块。进度页仍会持续统计覆盖率、掌握度和正确率。</p><a class="button secondary" href="{{ url_for('project_form',project_id=project.id) }}">调整项目模块</a></section>{% endif %}
+</div>
+
+<div class="grid cols-2 section-gap">
+  {% if current_modules.mock %}<section class="card">
+    <div class="split"><h2>科目掌握度</h2><a href="{{ url_for('practice') }}">选择章节练习</a></div>
+    <div class="subject-list">{% for s in subjects %}<div class="subject-progress"><div><b>{{ s.exam_code or s.name }}</b><div class="muted">覆盖 {{ s.attempted_count }}/{{ s.verified_count }} 题</div></div><div><div class="progress"><i style="width:{{ s.mastery }}%"></i></div><small class="muted">覆盖率 {{ s.coverage }}%</small></div><b>{{ s.mastery }}%</b></div>{% else %}<div class="empty">还没有科目数据。</div>{% endfor %}</div>
+  </section>{% endif %}
+  <section class="card">
+    <div class="split"><h2>模拟考试历史</h2><a href="{{ url_for('mock_setup') }}">开始模拟</a></div>
+    {% for m in mocks %}<p class="split"><span>{{ m.submitted_at[:16] }} {% if m.qualifying %}<span class="badge verified">有效</span>{% endif %}</span><b class="{{ 'good' if m.score >= readiness.settings.mock_threshold|float else 'warn' }}">{{ m.score }}%</b></p>{% else %}<div class="empty">尚无模拟成绩。</div>{% endfor %}
+  </section>
+</div>
+
+<section class="card section-gap">
+  <div class="split"><div><h2>章节明细</h2><div class="muted">覆盖率、掌握度和近期正确率分开看，避免“做过”被误认为“掌握”。</div></div><a href="{{ url_for('knowledge') }}">管理核心章节</a></div>
+  {% for c in chapters %}<div class="chapter-row"><div><b>{{ c.name }}</b><div class="muted">{{ c.subject_name }}{% if c.is_core %} · 核心{% endif %}</div></div><div><small>覆盖率 {{ c.coverage }}%</small><div class="progress"><i style="width:{{ c.coverage }}%"></i></div></div><div><small>掌握度 {{ c.mastery }}%</small><div class="progress"><i style="width:{{ c.mastery }}%"></i></div></div><div><small>近期正确率</small><br><b>{{ c.accuracy }}%</b></div></div>{% else %}<div class="empty">请先建立知识树。</div>{% endfor %}
+</section>
+{% endblock %}

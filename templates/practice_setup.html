@@ -1,0 +1,41 @@
+{% extends 'base.html' %}{% block title %}章节练习 · I Love Learning{% endblock %}{% block content %}
+<div class="page-head"><div><div class="eyebrow">自由练习</div><h1>选择今天要练的范围</h1><div class="lead">只使用已核验题目；复习提醒不会打断你推进新章节。</div></div></div>
+<div class="grid cols-3" style="margin-bottom:18px">
+  <button type="button" class="card quick-card" data-count-preset="10"><span class="quick-icon">10</span><span><b>轻量热身</b><small>约 8–12 分钟</small></span></button>
+  <button type="button" class="card quick-card" data-count-preset="20"><span class="quick-icon">20</span><span><b>标准练习</b><small>适合一个知识块</small></span></button>
+  <button type="button" class="card quick-card" data-count-preset="50"><span class="quick-icon">50</span><span><b>集中强化</b><small>用于阶段复盘</small></span></button>
+</div>
+<form method="post" class="card form-grid" id="practice-setup-form">
+  <div class="field"><label>科目</label><select name="subject_id" id="subject-select"><option value="">全部科目</option>{% for x in subjects %}<option value="{{ x.id }}">{{ x.exam_code or x.name }}</option>{% endfor %}</select></div>
+  <div class="field"><label>章节</label><select name="chapter_id" id="chapter-select"><option value="">全部章节</option>{% for x in chapters %}<option value="{{ x.id }}" data-subject="{{ x.subject_id }}">{{ x.name }}</option>{% endfor %}</select></div>
+  <div class="field"><label>知识点</label><select name="knowledge_point_id" id="point-select"><option value="">全部知识点</option>{% for x in points %}<option value="{{ x.id }}" data-chapter="{{ x.chapter_id }}">{{ x.name }}</option>{% endfor %}</select></div>
+  <div class="field"><label>题型</label><select name="type" id="type-select"><option value="">全部题型</option>{% for k,v in TYPE_NAMES.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+
+  <div class="field full"><label>出题数量</label><div class="practice-mode-grid">
+    <label class="option practice-mode"><input type="radio" name="selection_mode" value="count" checked><span><b>随机指定题量</b><small>从匹配题目中随机抽取1–100道</small></span></label>
+    <label class="option practice-mode"><input type="radio" name="selection_mode" value="all"><span><b>全部匹配题目</b><small>加入当前筛选下的全部已核验题目</small></span></label>
+  </div></div>
+  <div class="field" id="practice-count-field"><label>指定题量</label><input id="practice-count" type="number" name="count" min="1" max="100" value="10"><small>选择“全部匹配题目”后不再限制数量。</small></div>
+  <div class="field"><label>匹配结果</label><div class="match-count" id="practice-match-count" data-count-url="{{ url_for('practice_match_count') }}">当前匹配 <strong>—</strong> 道已核验题</div><small class="muted">数量会随科目、章节、知识点和题型自动更新。</small></div>
+  <div class="field full"><div class="danger-note">题目会随机排列，多选题必须完整匹配才判为正确。</div></div>
+  <div class="field full actions"><button type="submit">生成练习并开始</button><a class="button secondary" href="{{ url_for('review') }}">改做今日复习</a></div>
+</form>
+{% endblock %}{% block scripts %}<script>
+const form=document.querySelector('#practice-setup-form'),subject=document.querySelector('#subject-select'),chapter=document.querySelector('#chapter-select'),point=document.querySelector('#point-select'),type=document.querySelector('#type-select'),count=document.querySelector('#practice-count'),countField=document.querySelector('#practice-count-field'),matchBox=document.querySelector('#practice-match-count'),modes=[...document.querySelectorAll('input[name="selection_mode"]')];
+let countRequest;
+function filterOptions(select,key,value){[...select.options].forEach((option,index)=>{if(!index)return;option.hidden=Boolean(value)&&option.dataset[key]!==value});if(select.selectedOptions[0]?.hidden)select.value=''}
+function syncSelectionMode(){const useAll=form.elements.selection_mode.value==='all';count.disabled=useAll;countField.classList.toggle('is-disabled',useAll);countField.setAttribute('aria-disabled',String(useAll))}
+async function updateMatchCount(){
+  if(countRequest)countRequest.abort();countRequest=new AbortController();
+  const params=new URLSearchParams();[["subject_id",subject],["chapter_id",chapter],["knowledge_point_id",point],["type",type]].forEach(([key,select])=>{if(select.value)params.set(key,select.value)});
+  matchBox.classList.add('loading');matchBox.querySelector('strong').textContent='—';
+  try{const response=await fetch(`${matchBox.dataset.countUrl}?${params}`,{signal:countRequest.signal,headers:{Accept:'application/json'}});if(!response.ok)throw new Error();const data=await response.json();matchBox.querySelector('strong').textContent=data.count}
+  catch(error){if(error.name!=='AbortError')matchBox.querySelector('strong').textContent='无法统计'}
+  finally{matchBox.classList.remove('loading')}
+}
+subject.addEventListener('change',()=>{filterOptions(chapter,'subject',subject.value);filterOptions(point,'chapter','');point.value='';updateMatchCount()});
+chapter.addEventListener('change',()=>{filterOptions(point,'chapter',chapter.value);updateMatchCount()});point.addEventListener('change',updateMatchCount);type.addEventListener('change',updateMatchCount);
+modes.forEach(mode=>mode.addEventListener('change',syncSelectionMode));
+document.querySelectorAll('[data-count-preset]').forEach(button=>button.addEventListener('click',()=>{form.elements.selection_mode.value='count';count.value=button.dataset.countPreset;syncSelectionMode();form.scrollIntoView({behavior:'smooth',block:'center'})}));
+syncSelectionMode();updateMatchCount();
+</script>{% endblock %}

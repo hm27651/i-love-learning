@@ -1,0 +1,21 @@
+{% extends 'base.html' %}{% block title %}{{ '编辑' if item else '新建' }}学习项目 · I Love Learning{% endblock %}{% block content %}
+<div class="page-head"><div><h1>{{ '编辑学习项目' if item else '新建学习项目' }}</h1><div class="lead">模板提供合适的模块默认值，保存后仍可按项目调整。</div></div></div>
+<form method="post" class="card form-grid">
+  <div class="field"><label>项目名称</label><input name="name" required value="{{ item.name if item else '' }}" placeholder="例如：H3CSE、软考、英语课程"></div>
+  <div class="field"><label>项目模板</label><select name="project_type" id="project-type">{% for key,label in PROJECT_TYPE_NAMES.items() %}<option value="{{ key }}" {{ 'selected' if item and item.project_type==key }}>{{ label }}</option>{% endfor %}</select></div>
+  <div class="field"><label>开始日期</label><input type="date" name="start_date" value="{{ item.start_date if item else today }}"></div>
+  <div class="field"><label>计划周数</label><input type="number" name="duration_weeks" min="1" max="104" value="{{ item.duration_weeks if item else 12 }}"></div>
+  <div class="field"><label>实践模块别名</label><input name="practice_alias" value="{{ item.practice_alias if item else '实践任务' }}" placeholder="例如：HCL实验、编程实验"></div>
+  <div class="field full"><label>项目说明</label><textarea name="description">{{ item.description if item else '' }}</textarea></div>
+  <input type="hidden" name="custom_modules" value="1">
+  <div class="field full"><label>可选模块</label><div class="grid cols-4">
+    <label class="option"><input type="checkbox" name="module_mock" value="1" {{ 'checked' if modules.get('mock') }}><span><b>模拟考试</b><small>组卷、计时与成绩</small></span></label>
+    <label class="option"><input type="checkbox" name="module_plan" value="1" {{ 'checked' if modules.get('plan') }}><span><b>学习计划</b><small>按周目标管理</small></span></label>
+    <label class="option"><input type="checkbox" name="module_tasks" value="1" {{ 'checked' if modules.get('tasks') }}><span><b>实践任务</b><small>实验、作品或实操记录</small></span></label>
+    <label class="option"><input type="checkbox" name="module_readiness" value="1" {{ 'checked' if modules.get('readiness') }}><span><b>准备度</b><small>综合门槛判断</small></span></label>
+  </div></div>
+  <div class="field full actions"><button>保存项目</button><a class="button secondary" href="{{ url_for('projects') }}">取消</a></div>
+</form>
+{% endblock %}{% block scripts %}<script>
+{% if not item %}const type=document.querySelector('#project-type'),defaults={practice:{mock:0,plan:0,tasks:0,readiness:0},exam_prep:{mock:1,plan:1,tasks:0,readiness:1},practical_certification:{mock:1,plan:1,tasks:1,readiness:1}};type.addEventListener('change',()=>Object.entries(defaults[type.value]).forEach(([key,value])=>document.querySelector(`[name="module_${key}"]`).checked=Boolean(value)));{% endif %}
+</script>{% endblock %}

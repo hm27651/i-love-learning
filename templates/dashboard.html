@@ -1,0 +1,64 @@
+{% extends 'base.html' %}{% block title %}今天 · I Love Learning{% endblock %}
+{% block content %}
+<section class="card today-hero">
+  <div>
+    <div class="eyebrow">今天学什么 · {{ today }}</div>
+    <h1>{% if due %}先清掉 {{ due }} 道到期复习，再向前推进。{% else %}复习队列已清空，适合推进新章节。{% endif %}</h1>
+    <div class="lead">当前项目：{{ project.name }}。把理解、练习和复盘连成稳定闭环。</div>
+    <div class="hero-actions">
+      {% if due %}<a class="button" href="{{ url_for('review') }}">开始今日复习</a>{% else %}<a class="button" href="{{ url_for('practice') }}">开始章节练习</a>{% endif %}
+      {% if continue_session %}<a class="button secondary" href="{{ url_for('practice_run',session_id=continue_session.id) }}">继续上次练习</a>{% endif %}
+    </div>
+  </div>
+  <div class="streak-panel">
+    <div class="streak-number">{{ streak }} <small>天连续学习</small></div>
+    <p>近 7 天已留下 {{ last_seven }} 条答题记录。</p>
+  </div>
+</section>
+
+<div class="quick-actions">
+  <a class="quick-card" href="{{ url_for('review') }}"><span class="quick-icon">复</span><span><b>到期复习</b><small>{{ due }} 道等待处理</small></span><b>→</b></a>
+  <form class="quick-card" method="post" action="{{ url_for('practice') }}"><span class="quick-icon">10</span><span><b>快速练习</b><small>随机 10 道已核验题</small></span><input type="hidden" name="count" value="10"><button class="small" type="submit">开始</button></form>
+  {% if continue_session %}<a class="quick-card" href="{{ url_for('practice_run',session_id=continue_session.id) }}"><span class="quick-icon">续</span><span><b>继续练习</b><small>从上次停下的位置继续</small></span><b>→</b></a>{% elif current_modules.tasks %}<a class="quick-card" href="{{ url_for('labs') }}"><span class="quick-icon">验</span><span><b>完成一个{{ project.practice_alias }}</b><small>用验证结果巩固所学</small></span><b>→</b></a>{% else %}<a class="quick-card" href="{{ url_for('knowledge') }}"><span class="quick-icon">树</span><span><b>整理知识树</b><small>补充章节与知识点</small></span><b>→</b></a>{% endif %}
+</div>
+
+{% if current_modules.plan or current_modules.readiness %}
+<div class="grid cols-2 section-gap">
+  {% if current_modules.plan %}
+  <section class="card week-card">
+    <div>
+      <div class="split"><div><div class="eyebrow">第 {{ week.week_no }} 周</div><h2>{{ week.plan.title if week.plan else '本周学习目标' }}</h2></div><a href="{{ url_for('plans') }}">调整计划</a></div>
+      <p class="muted">{{ week.plan.chapter_goal if week.plan else '前往周计划设置本周章节、题量与实验目标。' }}</p>
+      {% if week.plan and week.plan.notes %}<p>{{ week.plan.notes }}</p>{% endif %}
+    </div>
+    <div class="goal-bars">
+      <div class="goal-line"><span>答题 {{ week.attempts }}/{{ week.plan.question_goal if week.plan else 0 }}</span><div class="progress"><i style="width:{{ week.question_rate }}%"></i></div><b>{{ week.question_rate }}%</b></div>
+      {% if current_modules.tasks %}<div class="goal-line"><span>{{ project.practice_alias }} {{ week.labs }}/{{ week.plan.lab_goal if week.plan else 0 }}</span><div class="progress"><i style="width:{{ week.lab_rate }}%"></i></div><b>{{ week.lab_rate }}%</b></div>{% endif %}
+    </div>
+  </section>
+  {% endif %}
+  {% if current_modules.readiness %}
+  <section class="card">
+    <div class="split"><div><div class="eyebrow">项目准备度</div><h2>{{ '已达到当前项目门槛' if readiness.ready else '继续稳步准备' }}</h2></div><a href="{{ url_for('progress') }}">查看详情</a></div>
+    <div class="readiness-list">
+      {% if readiness.active_gates.mock %}<div class="readiness-item {{ 'ok' if readiness.mock_ok }}"><i class="readiness-dot"></i><span>连续 3 次有效模拟 ≥ {{ readiness.settings.mock_threshold }}%</span><b>{{ '完成' if readiness.mock_ok else '未完成' }}</b></div>{% endif %}
+      {% if readiness.active_gates.chapter %}<div class="readiness-item {{ 'ok' if readiness.chapter_ok }}"><i class="readiness-dot"></i><span>全部核心章节 ≥ {{ readiness.settings.chapter_threshold }}%</span><b>{{ '完成' if readiness.chapter_ok else '未完成' }}</b></div>{% endif %}
+      {% if readiness.active_gates.task %}<div class="readiness-item {{ 'ok' if readiness.lab_ok }}"><i class="readiness-dot"></i><span>{{ project.practice_alias }}完成率 ≥ {{ readiness.settings.task_threshold }}%</span><b>{{ readiness.lab_rate }}%</b></div>{% endif %}
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="grid cols-2 section-gap">
+  <section class="card">
+    <div class="split"><div><div class="eyebrow">最近 14 天</div><h2>答题与错误趋势</h2></div><a href="{{ url_for('progress') }}">完整趋势</a></div>
+    <div class="trend-chart">{% for x in trend %}<div class="trend-column" data-tip="{{ x.label }} · 对 {{ x.correct }} / 错 {{ x.wrong }}"><i style="height:{{ x.correct_height }}%"></i><i class="wrong" style="height:{{ x.wrong_height }}%"></i></div>{% endfor %}</div>
+    <div class="chart-legend"><span><i></i>正确</span><span class="wrong"><i></i>错误</span></div>
+  </section>
+  <section class="card">
+    <div class="split"><div><div class="eyebrow">核心章节</div><h2>优先补最弱的地方</h2></div><a href="{{ url_for('progress') }}">全部章节</a></div>
+    {% for c in chapters|sort(attribute='mastery') %}{% if loop.index <= 4 %}<div class="subject-progress"><div><b>{{ c.exam_code or c.name }}</b><div class="muted">{{ c.subject_name }}</div></div><div class="progress"><i style="width:{{ c.mastery }}%"></i></div><b>{{ c.mastery }}%</b></div>{% else %}{% endif %}{% else %}<div class="empty">还没有可统计的章节。</div>{% endfor %}
+  </section>
+</div>
+{% endblock %}

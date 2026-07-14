@@ -1,0 +1,4 @@
+{% extends 'base.html' %}{% block title %}模拟结果 · I Love Learning{% endblock %}{% block content %}
+<div class="page-head"><div><h1>模拟结果</h1><div class="lead">{{ '有效模拟，已计入准备度' if exam.qualifying else '练习型模拟，不计入准备度' }}</div></div><div class="metric {{ 'good' if exam.score>=85 else 'warn' }}"><strong>{{ exam.score }}%</strong><span>本次得分</span></div></div>
+<section class="card">{% for x in details %}<div class="exam-question"><h3 class="{{ 'good' if x.correct else 'bad' }}">{{ loop.index }}. {{ '正确' if x.correct else '错误' }}</h3><div class="question-stem">{{ x.question.stem }}</div><p>你的答案：{{ x.submitted|join(', ') or '未作答' }}<br>正确答案：<b>{{ x.question.answer|join(', ') }}</b></p>{% if x.question.explanation %}<div class="feedback">{{ x.question.explanation }}</div>{% endif %}</div>{% endfor %}</section>
+{% endblock %}

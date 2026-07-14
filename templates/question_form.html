@@ -1,0 +1,17 @@
+{% extends 'base.html' %}{% block title %}{{ '编辑' if item else '录入' }}题目 · I Love Learning{% endblock %}{% block content %}
+<div class="page-head"><div><h1>{{ '编辑' if item else '录入' }}题目</h1><div class="lead">AI 草稿必须人工核对答案、命令和 Comware 版本后再标记为已核验。</div></div></div>
+<form method="post" enctype="multipart/form-data" class="card form-grid">
+<div class="field"><label>知识点</label><select name="knowledge_point_id" required>{% for p in points %}<option value="{{ p.id }}" {% if item and item.knowledge_point_id==p.id %}selected{% endif %}>{{ p.subject_name }} / {{ p.chapter_name }} / {{ p.name }}</option>{% endfor %}</select></div>
+<div class="field"><label>题型</label><select name="type" id="question-type">{% for k,v in TYPE_NAMES.items() %}<option value="{{ k }}" {% if item and item.type==k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+<div class="field full"><label>题干</label><textarea name="stem" required>{{ item.stem if item else '' }}</textarea></div>
+<div class="field full" id="options-field"><label>选项（每行一个，系统自动按 A、B、C… 编号）</label><textarea name="options">{{ item.options|join('\n') if item else '' }}</textarea></div>
+<div class="field full"><label>标准答案</label><input name="answer" value="{{ item.answer|join(',') if item else '' }}" required><small>单选填 A；多选填 A,B；判断填“对/错”；填空和简答填写完整参考答案。</small></div>
+<div class="field full"><label>解析</label><textarea name="explanation">{{ item.explanation if item else '' }}</textarea></div>
+<div class="field"><label>难度</label><select name="difficulty">{% for n in range(1,6) %}<option value="{{ n }}" {% if (item and item.difficulty==n) or (not item and n==2) %}selected{% endif %}>{{ n }} 级</option>{% endfor %}</select></div>
+<div class="field"><label>审核状态</label><select name="status">{% for k,v in STATUS_NAMES.items() %}<option value="{{ k }}" {% if item and item.status==k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+<div class="field"><label>来源</label><input name="source" value="{{ item.source if item else '' }}" placeholder="官方教材、课程章节或可靠链接"></div>
+<div class="field"><label>版本说明</label><input name="version_note" value="{{ item.version_note if item else '' }}" placeholder="例如 Comware 7"></div>
+<div class="field full"><label>拓扑图或截图</label><input type="file" name="image" accept="image/png,image/jpeg,image/gif,image/webp">{% if item and item.image_path %}<img class="question-image" src="{{ url_for('upload',name=item.image_path) }}">{% endif %}</div>
+<div class="field full actions"><button>保存题目</button><a class="button secondary" href="{{ url_for('questions') }}">取消</a></div>
+</form>
+{% endblock %}{% block scripts %}<script>const t=document.querySelector('#question-type'),f=document.querySelector('#options-field');function sync(){f.style.display=['single','multiple'].includes(t.value)?'block':'none'}t.addEventListener('change',sync);sync();</script>{% endblock %}

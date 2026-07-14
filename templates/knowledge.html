@@ -1,0 +1,42 @@
+{% extends 'base.html' %}{% block title %}知识树 · I Love Learning{% endblock %}{% block content %}
+<div class="page-head"><div><h1>{{ project.name }} · 知识树</h1><div class="lead">固定层级为科目、章节和知识点；科目代码可为空，但在当前项目内不能重复。</div></div></div>
+<div class="grid cols-3">
+  <section class="card"><h2>新增科目</h2><form method="post" class="stack"><input type="hidden" name="kind" value="subject"><div><label>科目名称</label><input name="name" required></div><div><label>科目代码</label><input name="exam_code"></div><button>新增科目</button></form></section>
+  <section class="card"><h2>新增章节</h2><form method="post" class="stack"><input type="hidden" name="kind" value="chapter"><div><label>所属科目</label><select name="subject_id">{% for x in subjects %}<option value="{{ x.id }}">{{ x.name }}</option>{% endfor %}</select></div><div><label>章节名称</label><input name="name" required></div><label class="checkline"><input type="checkbox" name="is_core" checked>核心章节</label><button>新增章节</button></form></section>
+  <section class="card"><h2>新增知识点</h2><form method="post" class="stack"><input type="hidden" name="kind" value="point"><div><label>所属章节</label><select name="chapter_id">{% for x in chapters %}<option value="{{ x.id }}">{{ x.subject_name }} / {{ x.name }}</option>{% endfor %}</select></div><div><label>知识点名称</label><input name="name" required></div><button>新增知识点</button></form></section>
+</div>
+
+<section class="card section-gap"><h2>当前结构</h2>
+  {% for s in subjects %}
+  <div class="tree-group">
+    <form class="inline-form knowledge-editor subject-editor" method="post" action="{{ url_for('knowledge_rename') }}">
+      <input type="hidden" name="kind" value="subject"><input type="hidden" name="id" value="{{ s.id }}">
+      <input name="name" value="{{ s.name }}" aria-label="科目名称">
+      <input class="editor-secondary" name="exam_code" value="{{ s.exam_code }}" placeholder="科目代码" aria-label="科目代码">
+      <button class="small secondary">更新</button>
+    </form>
+    {% for c in chapters if c.subject_id==s.id %}
+    <div class="tree-chapter">
+      <div class="split">
+        <form class="inline-form knowledge-editor" method="post" action="{{ url_for('knowledge_rename') }}">
+          <input type="hidden" name="kind" value="chapter"><input type="hidden" name="id" value="{{ c.id }}">
+          <input name="name" value="{{ c.name }}" aria-label="章节名称">
+          <button class="small secondary">更新</button>
+        </form>
+        <form method="post" action="{{ url_for('toggle_core',chapter_id=c.id) }}"><button class="small secondary">{{ '取消核心' if c.is_core else '设为核心' }}</button></form>
+      </div>
+      <div>
+        {% for p in points if p.chapter_id==c.id %}
+        <form class="inline-form knowledge-editor" method="post" action="{{ url_for('knowledge_rename') }}" style="margin:6px 0">
+          <input type="hidden" name="kind" value="point"><input type="hidden" name="id" value="{{ p.id }}">
+          <input name="name" value="{{ p.name }}" aria-label="知识点名称">
+          <button class="small secondary">更新</button>
+        </form>
+        {% else %}<span class="muted">暂无知识点</span>{% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</section>
+{% endblock %}

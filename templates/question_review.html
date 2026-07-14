@@ -1,0 +1,24 @@
+{% extends 'base.html' %}{% block title %}审核题目 #{{ question.id }} · I Love Learning{% endblock %}{% block content %}
+<div class="review-workspace">
+  <aside class="review-rail">
+    <div class="review-rail-head"><div class="eyebrow">审核队列</div><b>当前页 {{ queue|length }} 道</b><div class="muted">方向键切换题目</div></div>
+    {% for item in queue %}<a class="review-rail-item {{ 'active' if item.id==question.id }}" href="{{ url_for('question_review',question_id=item.id,**request.args) }}"><b>#{{ item.id }} · {{ item.stem|truncate(46) }}</b><small>{{ TYPE_NAMES[item.type] }} · {{ STATUS_NAMES[item.status] }} · {{ item.chapter_name }}</small></a>{% endfor %}
+  </aside>
+  <article class="review-detail">
+    <div class="review-detail-head"><div><div class="eyebrow">题目 {{ position+1 }} / {{ queue|length }}</div><h1>审核题目 #{{ question.id }}</h1><div class="lead">核对协议原理、答案、Comware 命令与版本说明。</div></div><span class="badge {{ question.status }}">{{ STATUS_NAMES[question.status] }}</span></div>
+    <div class="question-stem">{{ question.stem }}</div>
+    {% if question.image_path %}<p><img class="question-image" src="{{ url_for('upload',name=question.image_path) }}" alt="题目配图"></p>{% endif %}
+    {% if question.options %}<div class="stack section-gap">{% for option in question.options %}<div class="option" style="cursor:default"><span class="option-key">{{ LETTERS[loop.index0] }}</span><span>{{ option }}</span></div>{% endfor %}</div>{% endif %}
+    <div class="review-answer">
+      <section class="card flat"><div class="eyebrow">标准答案</div><div class="question-stem"><b>{{ question.answer|join(', ') }}</b></div></section>
+      <section class="card flat"><div class="eyebrow">题目归属</div><div>{{ question.subject_name }} / {{ question.chapter_name }} / {{ question.knowledge_point_name }}</div><div class="muted">难度 {{ question.difficulty }}/5 · {{ TYPE_NAMES[question.type] }}</div></section>
+    </div>
+    <section class="card flat section-gap"><div class="eyebrow">解析</div><div class="explanation-body">{{ question.explanation or '尚未填写解析。' }}</div></section>
+    <section class="card flat section-gap"><div class="eyebrow">来源与版本</div><div>{{ question.source or '未注明来源' }}</div><div class="muted">{{ question.version_note or '未注明版本' }}</div></section>
+  </article>
+</div>
+<div class="review-toolbar">
+  <div class="actions">{% if previous_id %}<a class="button secondary" data-review-prev href="{{ url_for('question_review',question_id=previous_id,**request.args) }}">← 上一题</a>{% else %}<a class="button secondary" href="{{ url_for('questions',**request.args) }}">返回列表</a>{% endif %}{% if next_id %}<a class="button secondary" data-review-next href="{{ url_for('question_review',question_id=next_id,**request.args) }}">下一题 →</a>{% endif %}</div>
+  <div class="actions"><a class="button ghost" href="{{ url_for('question_form',question_id=question.id) }}">编辑题目</a><form method="post"><input type="hidden" name="next_id" value="{{ next_id or '' }}"><button class="danger" name="action" value="archived" data-review-archive>归档 <small>A</small></button></form><form method="post"><input type="hidden" name="next_id" value="{{ next_id or '' }}"><button name="action" value="verified" data-review-verify>核验并继续 <small>V</small></button></form></div>
+</div>
+{% endblock %}

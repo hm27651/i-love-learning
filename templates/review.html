@@ -1,0 +1,25 @@
+{% extends 'base.html' %}{% block title %}错题复习 · I Love Learning{% endblock %}{% block content %}
+<div class="page-head"><div><div class="eyebrow">复习队列</div><h1>把该复习的题清掉</h1><div class="lead">到期题优先，其次是反复答错的题；你仍可展开高级筛选自由调整。</div></div></div>
+<div class="review-summary">
+  <a class="card review-stat" href="{{ url_for('review',filter='due') }}"><span class="quick-icon">今</span><span><strong>{{ counts.due }}</strong><small class="muted">今日到期</small></span></a>
+  <a class="card review-stat" href="{{ url_for('review',filter='errors') }}"><span class="quick-icon">错</span><span><strong>{{ counts.errors }}</strong><small class="muted">有错误记录</small></span></a>
+</div>
+<details class="card advanced-filter" {% if request.args.get('chapter_id') or filter!='due' %}open{% endif %}>
+  <summary>高级筛选 · 当前显示 {{ {'due':'今日到期','errors':'全部错题','all':'全部已练习'}[filter] }}</summary>
+  <form class="filterbar" method="get" style="margin:0">
+    <select name="filter"><option value="due" {% if filter=='due' %}selected{% endif %}>今日到期</option><option value="errors" {% if filter=='errors' %}selected{% endif %}>全部错题</option><option value="all" {% if filter=='all' %}selected{% endif %}>全部已练习</option></select>
+    <select name="chapter_id"><option value="">全部章节</option>{% for c in chapters %}<option value="{{ c.id }}" {% if request.args.get('chapter_id')==c.id|string %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>
+    <button>应用筛选</button>
+  </form>
+</details>
+
+<form method="post" class="section-gap">
+  {% if questions %}
+  <div class="split" style="margin-bottom:10px"><label class="checkline"><input type="checkbox" data-check-all="input[name=question_id]" checked>全选当前 {{ questions|length }} 题</label><span class="muted">已选 <b data-selected-count>{{ questions|length }}</b> 题</span></div>
+  <div class="review-queue">
+    {% for q in questions %}<label class="review-card"><input type="checkbox" name="question_id" value="{{ q.id }}" checked><div><b>#{{ q.id }} · {{ q.stem|truncate(100) }}</b><p>{{ q.subject_name }} / {{ q.chapter_name }} · 掌握 {{ q.mastery_level }}/4</p></div><div class="review-priority">{% if q.due_date and q.due_date<=today %}<span class="badge draft">今日到期</span>{% endif %}{% if q.error_count>=3 %}<span class="badge archived">反复错 {{ q.error_count }} 次</span>{% elif q.error_count %}<span class="badge">错 {{ q.error_count }} 次</span>{% endif %}</div></label>{% endfor %}
+  </div>
+  <div class="queue-action"><span>先完成一小组，也比让队列继续堆积更好。</span><button type="submit">开始复习所选题目 →</button></div>
+  {% else %}<section class="card empty"><div class="quick-icon" style="margin:0 auto 14px">✓</div><h2>当前队列已清空</h2><p>可以继续新章节，或切换高级筛选回看全部错题。</p><a class="button" href="{{ url_for('practice') }}">去章节练习</a></section>{% endif %}
+</form>
+{% endblock %}

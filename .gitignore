@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.py[cod]
+data/
+backups/
+tmp/
+题库/
+.codebase-memory/
+.agents/
+.codex/
+.env
+*.db
+*.db-wal
+*.db-shm

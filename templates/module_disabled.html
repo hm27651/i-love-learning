@@ -1,0 +1,3 @@
+{% extends 'base.html' %}{% block title %}模块未启用 · I Love Learning{% endblock %}{% block content %}
+<section class="card empty"><div class="quick-icon" style="margin:0 auto 14px">关</div><h1>当前项目未启用“{{ module_label }}”</h1><p>{{ project.name }} 仍可使用题库、练习、复习和学习进度。</p><div class="actions" style="justify-content:center"><a class="button" href="{{ url_for('project_form',project_id=project.id) }}">调整项目模块</a><a class="button secondary" href="{{ url_for('dashboard') }}">返回今天</a></div></section>
+{% endblock %}
