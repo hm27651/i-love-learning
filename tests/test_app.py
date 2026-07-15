@@ -36,6 +36,14 @@ class StudyAppTests(unittest.TestCase):
             conn.execute("DELETE FROM labs")
             conn.execute("DELETE FROM import_jobs")
             conn.execute("DELETE FROM source_documents")
+            conn.execute("DELETE FROM knowledge_points")
+            conn.execute("DELETE FROM chapters")
+            conn.execute("DELETE FROM subjects")
+            subject = conn.execute("INSERT INTO subjects(project_id,name,code) VALUES (?,?,?)",
+                                   (self.project_id, "测试科目", "TEST")).lastrowid
+            chapter = conn.execute("INSERT INTO chapters(subject_id,name,is_core) VALUES (?,?,1)",
+                                   (subject, "测试章节")).lastrowid
+            conn.execute("INSERT INTO knowledge_points(chapter_id,name) VALUES (?,?)", (chapter, "测试知识点"))
 
     def wait_for_job(self, job_id, statuses, timeout=8):
         deadline = time.time() + timeout
@@ -66,6 +74,20 @@ class StudyAppTests(unittest.TestCase):
                 VALUES (?,?,?,?,?,?,?,?,?,?)""", (point, qtype, f"{qtype} 测试题", json.dumps(options, ensure_ascii=False),
                 json.dumps(answers, ensure_ascii=False), "测试解析", 2, status, self.mod.now_iso(), self.mod.now_iso()))
             return cur.lastrowid
+
+    def create_tree(self, subject_name, chapter_name=None, point_name=None, *, project_id=None, core=0):
+        project_id = project_id or self.project_id
+        with self.mod.db() as conn:
+            subject = conn.execute("INSERT INTO subjects(project_id,name,code) VALUES (?,?,?)",
+                                   (project_id, subject_name, "")).lastrowid
+            chapter = point = None
+            if chapter_name is not None:
+                chapter = conn.execute("INSERT INTO chapters(subject_id,name,is_core) VALUES (?,?,?)",
+                                       (subject, chapter_name, core)).lastrowid
+            if point_name is not None:
+                point = conn.execute("INSERT INTO knowledge_points(chapter_id,name) VALUES (?,?)",
+                                     (chapter, point_name)).lastrowid
+            return subject, chapter, point
 
     def test_all_main_pages_render(self):
         self.add_question()
@@ -183,6 +205,219 @@ class StudyAppTests(unittest.TestCase):
             progress = conn.execute("SELECT * FROM question_progress WHERE question_id=?", (qid,)).fetchone()
             self.assertEqual(progress["mastery_level"], 0)
             self.assertEqual(progress["error_count"], 1)
+
+    def test_knowledge_page_has_delete_dialog_and_rejects_sibling_duplicate_names(self):
+        page = self.client.get("/knowledge")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b"data-knowledge-delete-dialog", page.data)
+        with self.mod.db() as conn:
+            subject = conn.execute("SELECT id FROM subjects WHERE project_id=? LIMIT 1", (self.project_id,)).fetchone()["id"]
+            chapter = conn.execute("SELECT id FROM chapters WHERE subject_id=? LIMIT 1", (subject,)).fetchone()["id"]
+        self.client.post("/knowledge", data={"kind": "chapter", "subject_id": subject, "name": "测试章节"})
+        self.client.post("/knowledge", data={"kind": "point", "chapter_id": chapter, "name": "测试知识点"})
+        with self.mod.db() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) n FROM chapters WHERE subject_id=?", (subject,)).fetchone()["n"], 1)
+            self.assertEqual(conn.execute("SELECT COUNT(*) n FROM knowledge_points WHERE chapter_id=?", (chapter,)).fetchone()["n"], 1)
+            first = conn.execute("INSERT INTO chapters(subject_id,name,is_core) VALUES (?,?,0)", (subject, "Network")).lastrowid
+            second = conn.execute("INSERT INTO chapters(subject_id,name,is_core) VALUES (?,?,0)", (subject, "Routing")).lastrowid
+        self.client.post("/knowledge/rename", data={"kind": "chapter", "id": second, "name": "network"})
+        with self.mod.db() as conn:
+            self.assertEqual(conn.execute("SELECT name FROM chapters WHERE id=?", (second,)).fetchone()["name"], "Routing")
+            self.assertEqual(conn.execute("SELECT name FROM chapters WHERE id=?", (first,)).fetchone()["name"], "Network")
+
+    def test_knowledge_tree_uses_browse_first_hierarchy_and_correct_counts(self):
+        question_id = self.add_question()
+        with self.mod.db() as conn:
+            conn.execute("UPDATE questions SET stem=? WHERE id=?", ("层级统计测试题", question_id))
+        page = self.client.get("/knowledge")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn(b"data-knowledge-tree", page.data)
+        self.assertIn(b"data-knowledge-node-dialog", page.data)
+        self.assertIn("知识结构".encode(), page.data)
+        self.assertIn("1 个科目 · 1 个章节 · 1 个知识点 · 1 道题".encode(), page.data)
+        self.assertNotIn(b"knowledge-editor", page.data)
+        with self.mod.db() as conn:
+            point_id = conn.execute(
+                "SELECT knowledge_point_id FROM questions WHERE id=?", (question_id,)
+            ).fetchone()["knowledge_point_id"]
+        self.assertIn(f"/questions?knowledge_point_id={point_id}".encode(), page.data)
+
+    def test_knowledge_point_question_filter_and_chapter_dialog_update(self):
+        first_question = self.add_question()
+        with self.mod.db() as conn:
+            conn.execute("UPDATE questions SET stem=? WHERE id=?", ("只属于第一个知识点", first_question))
+            chapter = conn.execute("SELECT id FROM chapters ORDER BY id LIMIT 1").fetchone()["id"]
+            first_point = conn.execute(
+                "SELECT knowledge_point_id FROM questions WHERE id=?", (first_question,)
+            ).fetchone()["knowledge_point_id"]
+            second_point = conn.execute(
+                "INSERT INTO knowledge_points(chapter_id,name) VALUES (?,?)", (chapter, "第二知识点")
+            ).lastrowid
+            conn.execute("""INSERT INTO questions(knowledge_point_id,type,stem,options_json,answer_json,status,created_at,updated_at)
+              VALUES (?,?,?,?,?,'verified',?,?)""",
+              (second_point, "single", "只属于第二个知识点", '["A","B"]', '["A"]', self.mod.now_iso(), self.mod.now_iso()))
+        filtered = self.client.get(f"/questions?knowledge_point_id={first_point}")
+        self.assertIn("只属于第一个知识点".encode(), filtered.data)
+        self.assertNotIn("只属于第二个知识点".encode(), filtered.data)
+        response = self.client.post(
+            "/knowledge/rename",
+            data={"kind": "chapter", "id": chapter, "name": "更新后的章节", "is_core": "on"},
+        )
+        self.assertIn(f"focus_kind=chapter&focus_id={chapter}", response.headers["Location"])
+        with self.mod.db() as conn:
+            updated = conn.execute("SELECT name,is_core FROM chapters WHERE id=?", (chapter,)).fetchone()
+            self.assertEqual(updated["name"], "更新后的章节")
+            self.assertEqual(updated["is_core"], 1)
+
+    def test_empty_knowledge_node_deletes_without_backup(self):
+        subject, _, _ = self.create_tree("空科目")
+        before = set(self.mod.BACKUP_DIR.glob("knowledge_delete_*")) if self.mod.BACKUP_DIR.exists() else set()
+        reports_dir = self.mod.BACKUP_DIR / "knowledge_operation_reports"
+        report_count = len(list(reports_dir.glob("*.json"))) if reports_dir.exists() else 0
+        response = self.client.post("/knowledge/delete", data={"kind": "subject", "node_id": subject})
+        self.assertEqual(response.status_code, 302)
+        with self.mod.db() as conn:
+            self.assertIsNone(conn.execute("SELECT 1 FROM subjects WHERE id=?", (subject,)).fetchone())
+        after = set(self.mod.BACKUP_DIR.glob("knowledge_delete_*")) if self.mod.BACKUP_DIR.exists() else set()
+        self.assertEqual(before, after)
+        reports = list(reports_dir.glob("*.json"))
+        self.assertEqual(len(reports), report_count + 1)
+        self.assertLess(max(reports, key=lambda path: path.stat().st_mtime).stat().st_size, 2048)
+
+    def test_nonempty_point_migrates_question_identity_and_creates_lightweight_backup(self):
+        with self.mod.db() as conn:
+            chapter = conn.execute("SELECT id FROM chapters ORDER BY id LIMIT 1").fetchone()["id"]
+            source = conn.execute("INSERT INTO knowledge_points(chapter_id,name) VALUES (?,?)", (chapter, "源知识点")).lastrowid
+            target = conn.execute("INSERT INTO knowledge_points(chapter_id,name) VALUES (?,?)", (chapter, "目标知识点")).lastrowid
+            question = conn.execute("""INSERT INTO questions(knowledge_point_id,type,stem,options_json,answer_json,status,created_at,updated_at)
+              VALUES (?,'single','迁移保留ID','[\"甲\",\"乙\"]','[\"A\"]','verified',?,?)""",
+              (source, self.mod.now_iso(), self.mod.now_iso())).lastrowid
+            conn.execute("INSERT INTO question_progress(question_id,mastery_level,attempts,correct_attempts,error_count) VALUES (?,?,?,?,?)",
+                         (question, 3, 5, 4, 1))
+            conn.execute("INSERT INTO attempts(question_id,mode,is_correct,answered_at) VALUES (?,?,?,?)",
+                         (question, "practice", 1, self.mod.now_iso()))
+            conn.execute("INSERT INTO practice_sessions(id,project_id,mode,question_ids_json,started_at) VALUES (?,?,?,?,?)",
+                         ("migration-session", self.project_id, "practice", json.dumps([question]), self.mod.now_iso()))
+        impact = self.client.get(f"/api/knowledge/point/{source}/delete-impact").get_json()
+        self.assertTrue(impact["nonempty"])
+        self.assertEqual(impact["counts"]["questions"], 1)
+        response = self.client.post("/knowledge/delete", data={
+            "kind": "point", "node_id": source, "target_id": target, "confirmation_name": "源知识点"
+        })
+        self.assertEqual(response.status_code, 302)
+        with self.mod.db() as conn:
+            self.assertEqual(conn.execute("SELECT knowledge_point_id FROM questions WHERE id=?", (question,)).fetchone()["knowledge_point_id"], target)
+            self.assertEqual(conn.execute("SELECT mastery_level FROM question_progress WHERE question_id=?", (question,)).fetchone()["mastery_level"], 3)
+            self.assertEqual(conn.execute("SELECT COUNT(*) n FROM attempts WHERE question_id=?", (question,)).fetchone()["n"], 1)
+            self.assertEqual(json.loads(conn.execute("SELECT question_ids_json FROM practice_sessions WHERE id='migration-session'").fetchone()["question_ids_json"]), [question])
+        folders = sorted(self.mod.BACKUP_DIR.glob(f"knowledge_delete_*_point_{source}"))
+        self.assertTrue(folders)
+        summary = folders[-1] / "summary.json"
+        self.assertTrue((folders[-1] / self.mod.DB_PATH.name).exists())
+        self.assertLess(summary.stat().st_size, 2048)
+        self.assertEqual(json.loads(summary.read_text(encoding="utf-8"))["result"], "success")
+
+    def test_chapter_delete_requires_conflict_confirmation_then_merges_and_preserves_core(self):
+        with self.mod.db() as conn:
+            subject = conn.execute("SELECT id FROM subjects ORDER BY id LIMIT 1").fetchone()["id"]
+            source_chapter = conn.execute("INSERT INTO chapters(subject_id,name,is_core) VALUES (?,?,1)", (subject, "源章节")).lastrowid
+            target_chapter = conn.execute("INSERT INTO chapters(subject_id,name,is_core) VALUES (?,?,0)", (subject, "目标章节")).lastrowid
+            source_point = conn.execute("INSERT INTO knowledge_points(chapter_id,name) VALUES (?,?)", (source_chapter, "同名点")).lastrowid
+            target_point = conn.execute("INSERT INTO knowledge_points(chapter_id,name) VALUES (?,?)", (target_chapter, "同名点")).lastrowid
+            question = conn.execute("""INSERT INTO questions(knowledge_point_id,type,stem,options_json,answer_json,status,created_at,updated_at)
+              VALUES (?,'single','章节迁移题','[\"甲\",\"乙\"]','[\"A\"]','verified',?,?)""",
+              (source_point, self.mod.now_iso(), self.mod.now_iso())).lastrowid
+            lab = conn.execute("INSERT INTO labs(project_id,chapter_id,title,status,created_at,updated_at) VALUES (?,?,?,?,?,?)",
+                               (self.project_id, source_chapter, "迁移实践", "planned", self.mod.now_iso(), self.mod.now_iso())).lastrowid
+        blocked = self.client.post("/knowledge/delete", data={"kind": "chapter", "node_id": source_chapter,
+            "target_id": target_chapter, "confirmation_name": "源章节"})
+        self.assertEqual(blocked.status_code, 302)
+        with self.mod.db() as conn:
+            self.assertIsNotNone(conn.execute("SELECT 1 FROM chapters WHERE id=?", (source_chapter,)).fetchone())
+        self.client.post("/knowledge/delete", data={"kind": "chapter", "node_id": source_chapter,
+            "target_id": target_chapter, "confirmation_name": "源章节", "merge_conflicts": "1"})
+        with self.mod.db() as conn:
+            self.assertIsNone(conn.execute("SELECT 1 FROM chapters WHERE id=?", (source_chapter,)).fetchone())
+            self.assertEqual(conn.execute("SELECT knowledge_point_id FROM questions WHERE id=?", (question,)).fetchone()["knowledge_point_id"], target_point)
+            self.assertEqual(conn.execute("SELECT chapter_id FROM labs WHERE id=?", (lab,)).fetchone()["chapter_id"], target_chapter)
+            self.assertEqual(conn.execute("SELECT is_core FROM chapters WHERE id=?", (target_chapter,)).fetchone()["is_core"], 1)
+
+    def test_existing_duplicate_children_block_migration_until_resolved(self):
+        with self.mod.db() as conn:
+            subject = conn.execute("SELECT id FROM subjects ORDER BY id LIMIT 1").fetchone()["id"]
+            source = conn.execute("INSERT INTO chapters(subject_id,name,is_core) VALUES (?,?,0)", (subject, "含重名章节")).lastrowid
+            target = conn.execute("INSERT INTO chapters(subject_id,name,is_core) VALUES (?,?,0)", (subject, "空目标章节")).lastrowid
+            conn.execute("INSERT INTO knowledge_points(chapter_id,name) VALUES (?,?)", (source, "Duplicate"))
+            conn.execute("INSERT INTO knowledge_points(chapter_id,name) VALUES (?,?)", (source, "duplicate"))
+        impact = self.client.get(f"/api/knowledge/chapter/{source}/delete-impact?target_id={target}").get_json()
+        self.assertTrue(impact["has_ambiguous_conflicts"])
+        self.client.post("/knowledge/delete", data={"kind": "chapter", "node_id": source,
+            "target_id": target, "confirmation_name": "含重名章节", "merge_conflicts": "1"})
+        with self.mod.db() as conn:
+            self.assertIsNotNone(conn.execute("SELECT 1 FROM chapters WHERE id=?", (source,)).fetchone())
+
+    def test_subject_delete_blocks_active_import_then_moves_import_history(self):
+        source_subject, source_chapter, _ = self.create_tree("待删除科目", "待迁移章节", "待迁移知识点")
+        target_subject, _, _ = self.create_tree("目标科目")
+        with self.mod.db() as conn:
+            document = "delete-source-doc"
+            job = "delete-source-job"
+            conn.execute("""INSERT INTO source_documents(id,project_id,subject_id,original_name,stored_path,sha256,file_type,size_bytes,created_at)
+              VALUES (?,?,?,?,?,?,?,?,?)""", (document, self.project_id, source_subject, "source.csv", "imports/source.csv", "abc", "csv", 1, self.mod.now_iso()))
+            conn.execute("""INSERT INTO import_jobs(id,source_document_id,project_id,subject_id,status,stage,created_at,updated_at)
+              VALUES (?,?,?,?,?,?,?,?)""", (job, document, self.project_id, source_subject, "running", "parsing", self.mod.now_iso(), self.mod.now_iso()))
+        self.client.post("/knowledge/delete", data={"kind": "subject", "node_id": source_subject,
+            "target_id": target_subject, "confirmation_name": "待删除科目"})
+        with self.mod.db() as conn:
+            self.assertIsNotNone(conn.execute("SELECT 1 FROM subjects WHERE id=?", (source_subject,)).fetchone())
+            conn.execute("UPDATE import_jobs SET status='failed' WHERE id=?", (job,))
+        self.client.post("/knowledge/delete", data={"kind": "subject", "node_id": source_subject,
+            "target_id": target_subject, "confirmation_name": "待删除科目"})
+        with self.mod.db() as conn:
+            self.assertIsNone(conn.execute("SELECT 1 FROM subjects WHERE id=?", (source_subject,)).fetchone())
+            self.assertEqual(conn.execute("SELECT subject_id FROM chapters WHERE id=?", (source_chapter,)).fetchone()["subject_id"], target_subject)
+            self.assertEqual(conn.execute("SELECT subject_id FROM source_documents WHERE id=?", (document,)).fetchone()["subject_id"], target_subject)
+            self.assertEqual(conn.execute("SELECT subject_id FROM import_jobs WHERE id=?", (job,)).fetchone()["subject_id"], target_subject)
+
+    def test_delete_target_cannot_cross_project(self):
+        with self.mod.db() as conn:
+            source = conn.execute("SELECT id FROM knowledge_points ORDER BY id LIMIT 1").fetchone()["id"]
+            question = conn.execute("""INSERT INTO questions(knowledge_point_id,type,stem,options_json,answer_json,status,created_at,updated_at)
+              VALUES (?,'single','跨项目保护','[\"甲\",\"乙\"]','[\"A\"]','verified',?,?)""",
+              (source, self.mod.now_iso(), self.mod.now_iso())).lastrowid
+            other = self.mod.create_project(conn, "另一个项目", "practice")
+            subject = conn.execute("INSERT INTO subjects(project_id,name,code) VALUES (?,?,?)", (other, "其它科目", "")).lastrowid
+            chapter = conn.execute("INSERT INTO chapters(subject_id,name,is_core) VALUES (?,?,0)", (subject, "其它章节")).lastrowid
+            target = conn.execute("INSERT INTO knowledge_points(chapter_id,name) VALUES (?,?)", (chapter, "其它知识点")).lastrowid
+        response = self.client.post("/knowledge/delete", data={"kind": "point", "node_id": source,
+            "target_id": target, "confirmation_name": "测试知识点"})
+        self.assertEqual(response.status_code, 302)
+        with self.mod.db() as conn:
+            self.assertEqual(conn.execute("SELECT knowledge_point_id FROM questions WHERE id=?", (question,)).fetchone()["knowledge_point_id"], source)
+
+    def test_last_empty_subject_can_be_deleted_and_page_stays_usable(self):
+        with self.mod.db() as conn:
+            project = self.mod.create_project(conn, "空项目", "practice")
+            subject = conn.execute("INSERT INTO subjects(project_id,name,code) VALUES (?,?,?)", (project, "最后科目", "")).lastrowid
+        self.client.post("/projects/switch", data={"project_id": project, "return_to": "/knowledge"})
+        self.client.post("/knowledge/delete", data={"kind": "subject", "node_id": subject})
+        page = self.client.get("/knowledge")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("请先新增科目".encode(), page.data)
+
+    def test_knowledge_backup_retention_keeps_latest_twenty(self):
+        from knowledge_service import _trim_backups
+        folder = Path(self.temp.name) / "retention-test"
+        folder.mkdir(exist_ok=True)
+        for index in range(22):
+            item = folder / f"knowledge_delete_{index:02d}"
+            item.mkdir(exist_ok=True)
+            os.utime(item, (index + 1, index + 1))
+        _trim_backups(folder, keep=20)
+        remaining = sorted(path.name for path in folder.glob("knowledge_delete_*"))
+        self.assertEqual(len(remaining), 20)
+        self.assertNotIn("knowledge_delete_00", remaining)
+        self.assertNotIn("knowledge_delete_01", remaining)
 
     def test_subjective_question_requires_self_rating(self):
         qid = self.add_question("short")

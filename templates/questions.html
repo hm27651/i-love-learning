@@ -11,21 +11,22 @@
 </nav>
 {% endmacro %}
 {% block content %}
-<div class="page-head"><div><div class="eyebrow">管理 · {{ total }} 道{% if request.args.get('import_batch_id') %} · 导入批次{% endif %}</div><h1>题库</h1><div class="lead">草稿先审核，已核验题才会进入练习、模拟与正式统计。</div></div><div class="actions"><a class="button secondary" href="{{ url_for('question_review',question_id=questions[0].id,status=request.args.get('status','draft'),q=request.args.get('q',''),type=request.args.get('type',''),subject_id=request.args.get('subject_id',''),chapter_id=request.args.get('chapter_id',''),import_batch_id=request.args.get('import_batch_id',''),classification=request.args.get('classification',''),page=page) if questions else '#' }}">进入审核工作台</a><a class="button" href="{{ url_for('question_form') }}">＋ 录入题目</a></div></div>
+<div class="page-head"><div><div class="eyebrow">管理 · {{ total }} 道{% if request.args.get('import_batch_id') %} · 导入批次{% endif %}</div><h1>题库</h1><div class="lead">草稿先审核，已核验题才会进入练习、模拟与正式统计。</div></div><div class="actions"><a class="button secondary" href="{{ url_for('question_review',question_id=questions[0].id,status=request.args.get('status','draft'),q=request.args.get('q',''),type=request.args.get('type',''),subject_id=request.args.get('subject_id',''),chapter_id=request.args.get('chapter_id',''),knowledge_point_id=request.args.get('knowledge_point_id',''),import_batch_id=request.args.get('import_batch_id',''),classification=request.args.get('classification',''),page=page) if questions else '#' }}">进入审核工作台</a><a class="button" href="{{ url_for('question_form') }}">＋ 录入题目</a></div></div>
 
 <details class="filter-panel" data-mobile-filter open>
   <summary>筛选题库</summary>
-  <form class="filterbar five">
+  <form class="filterbar six">
     {% if request.args.get('import_batch_id') %}<input type="hidden" name="import_batch_id" value="{{ request.args.get('import_batch_id') }}">{% endif %}{% if request.args.get('classification') %}<input type="hidden" name="classification" value="{{ request.args.get('classification') }}">{% endif %}
     <input name="q" value="{{ request.args.get('q','') }}" placeholder="搜索题干或解析">
     <select name="status"><option value="">全部状态</option>{% for k,v in STATUS_NAMES.items() %}<option value="{{ k }}" {% if request.args.get('status')==k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
     <select name="type"><option value="">全部题型</option>{% for k,v in TYPE_NAMES.items() %}<option value="{{ k }}" {% if request.args.get('type')==k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select>
     <select name="subject_id"><option value="">全部科目</option>{% for s in subjects %}<option value="{{ s.id }}" {% if request.args.get('subject_id')==s.id|string %}selected{% endif %}>{{ s.exam_code or s.name }}</option>{% endfor %}</select>
     <select name="chapter_id"><option value="">全部章节</option>{% for c in chapters %}<option value="{{ c.id }}" {% if request.args.get('chapter_id')==c.id|string %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select>
+    <select name="knowledge_point_id"><option value="">全部知识点</option>{% for p in points %}<option value="{{ p.id }}" {% if request.args.get('knowledge_point_id')==p.id|string %}selected{% endif %}>{{ p.subject_name }} / {{ p.chapter_name }} / {{ p.name }}</option>{% endfor %}</select>
     <button>筛选</button>
   </form>
 </details>
-{% set nav_args = {'q':request.args.get('q',''),'status':request.args.get('status',''),'type':request.args.get('type',''),'subject_id':request.args.get('subject_id',''),'chapter_id':request.args.get('chapter_id',''),'import_batch_id':request.args.get('import_batch_id',''),'classification':request.args.get('classification','')} %}
+{% set nav_args = {'q':request.args.get('q',''),'status':request.args.get('status',''),'type':request.args.get('type',''),'subject_id':request.args.get('subject_id',''),'chapter_id':request.args.get('chapter_id',''),'knowledge_point_id':request.args.get('knowledge_point_id',''),'import_batch_id':request.args.get('import_batch_id',''),'classification':request.args.get('classification','')} %}
 {{ pager(page,pages,nav_args) }}
 
 <form method="post" action="{{ url_for('questions_bulk') }}">

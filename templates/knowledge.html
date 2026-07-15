@@ -1,42 +1,134 @@
 {% extends 'base.html' %}{% block title %}知识树 · I Love Learning{% endblock %}{% block content %}
-<div class="page-head"><div><h1>{{ project.name }} · 知识树</h1><div class="lead">固定层级为科目、章节和知识点；科目代码可为空，但在当前项目内不能重复。</div></div></div>
-<div class="grid cols-3">
-  <section class="card"><h2>新增科目</h2><form method="post" class="stack"><input type="hidden" name="kind" value="subject"><div><label>科目名称</label><input name="name" required></div><div><label>科目代码</label><input name="exam_code"></div><button>新增科目</button></form></section>
-  <section class="card"><h2>新增章节</h2><form method="post" class="stack"><input type="hidden" name="kind" value="chapter"><div><label>所属科目</label><select name="subject_id">{% for x in subjects %}<option value="{{ x.id }}">{{ x.name }}</option>{% endfor %}</select></div><div><label>章节名称</label><input name="name" required></div><label class="checkline"><input type="checkbox" name="is_core" checked>核心章节</label><button>新增章节</button></form></section>
-  <section class="card"><h2>新增知识点</h2><form method="post" class="stack"><input type="hidden" name="kind" value="point"><div><label>所属章节</label><select name="chapter_id">{% for x in chapters %}<option value="{{ x.id }}">{{ x.subject_name }} / {{ x.name }}</option>{% endfor %}</select></div><div><label>知识点名称</label><input name="name" required></div><button>新增知识点</button></form></section>
-</div>
+<div class="page-head knowledge-page-head"><div><div class="eyebrow">结构管理</div><h1>{{ project.name }} · 知识树</h1><div class="lead">按科目、章节和知识点组织题库，展开分支即可查看完整归属。</div></div></div>
 
-<section class="card section-gap"><h2>当前结构</h2>
-  {% for s in subjects %}
-  <div class="tree-group">
-    <form class="inline-form knowledge-editor subject-editor" method="post" action="{{ url_for('knowledge_rename') }}">
-      <input type="hidden" name="kind" value="subject"><input type="hidden" name="id" value="{{ s.id }}">
-      <input name="name" value="{{ s.name }}" aria-label="科目名称">
-      <input class="editor-secondary" name="exam_code" value="{{ s.exam_code }}" placeholder="科目代码" aria-label="科目代码">
-      <button class="small secondary">更新</button>
-    </form>
-    {% for c in chapters if c.subject_id==s.id %}
-    <div class="tree-chapter">
-      <div class="split">
-        <form class="inline-form knowledge-editor" method="post" action="{{ url_for('knowledge_rename') }}">
-          <input type="hidden" name="kind" value="chapter"><input type="hidden" name="id" value="{{ c.id }}">
-          <input name="name" value="{{ c.name }}" aria-label="章节名称">
-          <button class="small secondary">更新</button>
-        </form>
-        <form method="post" action="{{ url_for('toggle_core',chapter_id=c.id) }}"><button class="small secondary">{{ '取消核心' if c.is_core else '设为核心' }}</button></form>
-      </div>
-      <div>
-        {% for p in points if p.chapter_id==c.id %}
-        <form class="inline-form knowledge-editor" method="post" action="{{ url_for('knowledge_rename') }}" style="margin:6px 0">
-          <input type="hidden" name="kind" value="point"><input type="hidden" name="id" value="{{ p.id }}">
-          <input name="name" value="{{ p.name }}" aria-label="知识点名称">
-          <button class="small secondary">更新</button>
-        </form>
-        {% else %}<span class="muted">暂无知识点</span>{% endfor %}
-      </div>
-    </div>
-    {% endfor %}
+{% if duplicate_groups %}<section class="danger-note knowledge-duplicate-warning"><b>发现现有重名节点，相关结构删除前需要先重命名：</b>{% for group in duplicate_groups %}<span>{{ '章节' if group.kind=='chapter' else '知识点' }}“{{ group.name }}”（{{ group.parent_name }}，ID {{ group.ids|join('、') }}）</span>{% endfor %}</section>{% endif %}
+
+<section class="card knowledge-shell" data-knowledge-tree data-project-id="{{ project.id }}">
+  <header class="knowledge-shell-head">
+    <div><h2>知识结构</h2><p>{{ overview.subjects }} 个科目 · {{ overview.chapters }} 个章节 · {{ overview.points }} 个知识点 · {{ overview.questions }} 道题</p></div>
+    <button type="button" data-node-action="create" data-kind="subject">＋ 新增科目</button>
+  </header>
+  <div class="knowledge-toolbar">
+    <label class="knowledge-search"><span aria-hidden="true">⌕</span><input type="search" placeholder="搜索科目、代码、章节或知识点" autocomplete="off" data-tree-search aria-label="搜索知识结构"></label>
+    <div class="knowledge-view-actions"><span class="muted" data-search-status></span><button class="small secondary" type="button" data-expand-all>全部展开</button><button class="small secondary" type="button" data-collapse-all>全部收起</button></div>
   </div>
-  {% endfor %}
+
+  <div class="knowledge-tree-list" data-tree-list>
+    {% for s in subjects %}
+    <article class="knowledge-subject" id="knowledge-subject-{{ s.id }}" data-tree-node data-kind="subject" data-tree-key="subject:{{ s.id }}" data-own-search="{{ s.name }} {{ s.exam_code or '' }}">
+      <div class="knowledge-node-row knowledge-subject-row">
+        <button class="knowledge-node-toggle" type="button" data-tree-toggle aria-expanded="false" aria-controls="subject-branch-{{ s.id }}">
+          <span class="knowledge-chevron" aria-hidden="true">›</span><span class="knowledge-level-mark" aria-hidden="true">科</span>
+          <span class="knowledge-node-title"><strong data-node-label data-source-label="{{ s.name }}">{{ s.name }}</strong>{% if s.exam_code %}<small data-node-label data-source-label="{{ s.exam_code }}">{{ s.exam_code }}</small>{% else %}<small>未设置科目代码</small>{% endif %}</span>
+        </button>
+        <div class="knowledge-node-meta">
+          <span class="structure-count">{{ s.chapter_count }} 章</span><span class="structure-count">{{ s.point_count }} 点</span>
+          <a class="question-count {{ 'is-empty' if not s.question_count }}" href="{{ url_for('questions',subject_id=s.id) }}" title="查看本科目题目">{{ s.question_count }} 题</a>
+          <button class="knowledge-more" type="button" aria-label="编辑科目 {{ s.name }}" data-node-action="edit" data-kind="subject" data-node-id="{{ s.id }}" data-node-name="{{ s.name }}" data-exam-code="{{ s.exam_code or '' }}" data-impact-url="{{ url_for('knowledge_delete_impact',kind='subject',node_id=s.id) }}">•••</button>
+        </div>
+      </div>
+      <div class="knowledge-branch" id="subject-branch-{{ s.id }}" data-tree-branch aria-hidden="true" inert><div class="knowledge-branch-inner">
+        <div class="knowledge-child-head"><span>章节</span><button class="knowledge-inline-add" type="button" data-node-action="create" data-kind="chapter" data-parent-id="{{ s.id }}" data-parent-name="{{ s.name }}">＋ 新增章节</button></div>
+        <div class="knowledge-chapter-list">
+          {% for c in chapters if c.subject_id==s.id %}
+          <section class="knowledge-chapter" id="knowledge-chapter-{{ c.id }}" data-tree-node data-kind="chapter" data-tree-key="chapter:{{ c.id }}" data-parent-key="subject:{{ s.id }}" data-own-search="{{ c.name }}">
+            <div class="knowledge-node-row knowledge-chapter-row">
+              <button class="knowledge-node-toggle" type="button" data-tree-toggle aria-expanded="false" aria-controls="chapter-branch-{{ c.id }}">
+                <span class="knowledge-chevron" aria-hidden="true">›</span><span class="knowledge-level-mark chapter-mark" aria-hidden="true">章</span>
+                <span class="knowledge-node-title"><strong data-node-label data-source-label="{{ c.name }}">{{ c.name }}</strong><small>{{ s.name }}</small></span>
+              </button>
+              <div class="knowledge-node-meta">
+                {% if c.is_core %}<span class="core-badge">核心</span>{% endif %}<span class="structure-count">{{ c.point_count }} 点</span>
+                <a class="question-count {{ 'is-empty' if not c.question_count }}" href="{{ url_for('questions',chapter_id=c.id) }}" title="查看本章节题目">{{ c.question_count }} 题</a>
+                <button class="knowledge-more" type="button" aria-label="编辑章节 {{ c.name }}" data-node-action="edit" data-kind="chapter" data-node-id="{{ c.id }}" data-node-name="{{ c.name }}" data-parent-name="{{ s.name }}" data-is-core="{{ 1 if c.is_core else 0 }}" data-impact-url="{{ url_for('knowledge_delete_impact',kind='chapter',node_id=c.id) }}">•••</button>
+              </div>
+            </div>
+            <div class="knowledge-branch" id="chapter-branch-{{ c.id }}" data-tree-branch aria-hidden="true" inert><div class="knowledge-branch-inner">
+              <div class="knowledge-child-head point-head"><span>知识点</span><button class="knowledge-inline-add" type="button" data-node-action="create" data-kind="point" data-parent-id="{{ c.id }}" data-parent-name="{{ s.name }} / {{ c.name }}">＋ 新增知识点</button></div>
+              <div class="knowledge-point-list">
+                {% for p in points if p.chapter_id==c.id %}
+                <div class="knowledge-point" id="knowledge-point-{{ p.id }}" data-tree-node data-kind="point" data-tree-key="point:{{ p.id }}" data-parent-key="chapter:{{ c.id }}" data-own-search="{{ p.name }}">
+                  <div class="knowledge-point-name"><span class="knowledge-point-dot" aria-hidden="true"></span><strong data-node-label data-source-label="{{ p.name }}">{{ p.name }}</strong></div>
+                  <div class="knowledge-node-meta">
+                    <a class="question-count {{ 'is-empty' if not p.question_count }}" href="{{ url_for('questions',knowledge_point_id=p.id) }}" title="查看本知识点题目">{{ p.question_count }} 题</a>
+                    <button class="knowledge-more" type="button" aria-label="编辑知识点 {{ p.name }}" data-node-action="edit" data-kind="point" data-node-id="{{ p.id }}" data-node-name="{{ p.name }}" data-parent-name="{{ s.name }} / {{ c.name }}" data-impact-url="{{ url_for('knowledge_delete_impact',kind='point',node_id=p.id) }}">•••</button>
+                  </div>
+                </div>
+                {% else %}<div class="knowledge-empty-branch">暂无知识点，可从右上角添加。</div>{% endfor %}
+              </div>
+            </div></div>
+          </section>
+          {% else %}<div class="knowledge-empty-branch">暂无章节，可从右上角添加。</div>{% endfor %}
+        </div>
+      </div></div>
+    </article>
+    {% else %}<div class="knowledge-empty"><span aria-hidden="true">◇</span><h3>还没有知识结构</h3><p>请先新增科目，再逐级添加章节和知识点。</p><button type="button" data-node-action="create" data-kind="subject">＋ 新增科目</button></div>{% endfor %}
+  </div>
+  <div class="knowledge-no-results" data-no-results hidden><b>没有匹配的节点</b><span>换一个关键词，或清空搜索查看全部结构。</span></div>
 </section>
-{% endblock %}
+
+<dialog class="knowledge-node-dialog" data-knowledge-node-dialog>
+  <form method="post" class="knowledge-node-form" data-create-url="{{ url_for('knowledge') }}" data-update-url="{{ url_for('knowledge_rename') }}">
+    <input type="hidden" name="kind"><input type="hidden" name="id"><input type="hidden" name="subject_id"><input type="hidden" name="chapter_id">
+    <div class="dialog-head"><div><div class="eyebrow" data-node-dialog-eyebrow>节点详情</div><h2 data-node-dialog-title>编辑节点</h2></div><button class="icon-button" type="button" data-node-dialog-close aria-label="关闭">×</button></div>
+    <div class="knowledge-node-dialog-body">
+      <div class="knowledge-parent-context" data-node-parent-context hidden><span>所属位置</span><b></b></div>
+      <div class="field"><label data-node-name-label>名称</label><input name="name" required maxlength="160" autocomplete="off"></div>
+      <div class="field" data-subject-field hidden><label>科目代码</label><input name="exam_code" maxlength="80" placeholder="可留空"></div>
+      <label class="option knowledge-core-option" data-chapter-field hidden><input type="checkbox" name="is_core"><span><b>核心章节</b><small>准备度统计可将此章节作为重点门槛。</small></span></label>
+    </div>
+    <div class="dialog-actions knowledge-node-dialog-actions"><button class="danger" type="button" data-node-delete hidden>删除此节点</button><span></span><button class="secondary" type="button" data-node-dialog-close>取消</button><button type="submit" data-node-submit>更新</button></div>
+  </form>
+</dialog>
+
+<dialog class="knowledge-delete-dialog" data-knowledge-delete-dialog>
+  <form method="post" action="{{ url_for('knowledge_delete') }}" class="knowledge-delete-form">
+    <input type="hidden" name="kind"><input type="hidden" name="node_id">
+    <div class="dialog-head"><div><div class="eyebrow">安全删除</div><h2 data-delete-title>删除知识节点</h2></div><button class="icon-button" type="button" data-delete-close aria-label="关闭">×</button></div>
+    <div class="danger-note" data-delete-loading>正在分析关联内容…</div>
+    <div data-delete-content hidden>
+      <p data-delete-summary></p><div class="knowledge-impact-grid" data-delete-counts></div>
+      <div class="field" data-delete-target-field hidden><label>迁移目标</label><select name="target_id" data-delete-target><option value="">请选择目标节点</option></select><small>只能选择当前学习项目中的其它节点。</small></div>
+      <div class="danger-note" data-delete-blocked hidden></div><div class="knowledge-conflicts" data-delete-conflicts hidden></div>
+      <label class="option knowledge-merge-confirm" data-delete-merge-field hidden><input type="checkbox" name="merge_conflicts" value="1" data-delete-merge><span><b>确认合并同名节点</b><small>保留目标节点 ID，源节点中的内容迁入目标节点。</small></span></label>
+      <div class="field" data-delete-name-field hidden><label>输入完整名称“<b data-delete-exact-name></b>”确认</label><input name="confirmation_name" autocomplete="off" data-delete-name></div>
+    </div>
+    <div class="dialog-actions"><button class="secondary" type="button" data-delete-close>取消</button><button class="danger" type="submit" data-delete-submit disabled>确认删除</button></div>
+  </form>
+</dialog>
+{% endblock %}{% block scripts %}<script>
+(() => {
+  const tree=document.querySelector('[data-knowledge-tree]'); if(!tree)return;
+  const storageKey=`knowledge-tree:${tree.dataset.projectId}`,nodes=[...tree.querySelectorAll('[data-tree-node]')],expandable=nodes.filter(node=>node.querySelector(':scope > [data-tree-branch]'));
+  const search=tree.querySelector('[data-tree-search]'),searchStatus=tree.querySelector('[data-search-status]'),noResults=tree.querySelector('[data-no-results]');
+  function storedKeys(){try{const value=JSON.parse(sessionStorage.getItem(storageKey));return Array.isArray(value)?new Set(value):null}catch{return null}}
+  let expanded=storedKeys(); if(!expanded){expanded=new Set(expandable[0]?[expandable[0].dataset.treeKey]:[]);saveExpanded()}
+  function saveExpanded(){try{sessionStorage.setItem(storageKey,JSON.stringify([...expanded]))}catch{}}
+  function setExpanded(node,isOpen,persist=true){const branch=node.querySelector(':scope > [data-tree-branch]'),toggle=node.querySelector(':scope > .knowledge-node-row [data-tree-toggle]');if(!branch||!toggle)return;node.dataset.expanded=String(isOpen);toggle.setAttribute('aria-expanded',String(isOpen));branch.setAttribute('aria-hidden',String(!isOpen));branch.inert=!isOpen;if(persist){isOpen?expanded.add(node.dataset.treeKey):expanded.delete(node.dataset.treeKey);saveExpanded()}}
+  function restoreExpanded(){expandable.forEach(node=>setExpanded(node,expanded.has(node.dataset.treeKey),false))}
+  restoreExpanded();
+  tree.querySelectorAll('[data-tree-toggle]').forEach(toggle=>toggle.addEventListener('click',()=>{const node=toggle.closest('[data-tree-node]');setExpanded(node,node.dataset.expanded!=='true')}));
+  tree.querySelector('[data-expand-all]').addEventListener('click',()=>expandable.forEach(node=>setExpanded(node,true)));
+  tree.querySelector('[data-collapse-all]').addEventListener('click',()=>expandable.forEach(node=>setExpanded(node,false)));
+  function highlight(element,term){const source=element.dataset.sourceLabel||element.textContent;element.textContent=source;if(!term)return;const index=source.toLocaleLowerCase().indexOf(term);if(index<0)return;element.textContent='';element.append(document.createTextNode(source.slice(0,index)));const mark=document.createElement('mark');mark.textContent=source.slice(index,index+term.length);element.append(mark,document.createTextNode(source.slice(index+term.length)))}
+  function applySearch(){const term=search.value.trim().toLocaleLowerCase();nodes.forEach(node=>{node.classList.remove('is-search-hidden','is-search-match');node.querySelectorAll('[data-node-label]').forEach(label=>highlight(label,''))});noResults.hidden=true;searchStatus.textContent='';if(!term){restoreExpanded();return}const ownMatch=new Map(nodes.map(node=>[node,(node.dataset.ownSearch||'').toLocaleLowerCase().includes(term)]));const subjects=nodes.filter(node=>node.dataset.kind==='subject');let matches=0;nodes.forEach(node=>{if(ownMatch.get(node)){node.classList.add('is-search-match');node.querySelectorAll('[data-node-label]').forEach(label=>highlight(label,term));matches++}});subjects.forEach(subject=>{const chapters=[...subject.querySelectorAll(':scope > [data-tree-branch] .knowledge-chapter')];const subjectMatch=ownMatch.get(subject);let hasVisible=subjectMatch;chapters.forEach(chapter=>{const points=[...chapter.querySelectorAll('.knowledge-point')],chapterMatch=ownMatch.get(chapter),hasPoint=points.some(point=>ownMatch.get(point));const chapterVisible=subjectMatch||chapterMatch||hasPoint;chapter.classList.toggle('is-search-hidden',!chapterVisible);points.forEach(point=>point.classList.toggle('is-search-hidden',!(subjectMatch||chapterMatch||ownMatch.get(point))));if(chapterVisible){hasVisible=true;setExpanded(chapter,true,false)}});subject.classList.toggle('is-search-hidden',!hasVisible);if(hasVisible)setExpanded(subject,true,false)});searchStatus.textContent=`匹配 ${matches} 个节点`;noResults.hidden=matches!==0}
+  search.addEventListener('input',applySearch);
+
+  const nodeDialog=document.querySelector('[data-knowledge-node-dialog]'),nodeForm=nodeDialog.querySelector('form'),nodeTitle=nodeDialog.querySelector('[data-node-dialog-title]'),nodeEyebrow=nodeDialog.querySelector('[data-node-dialog-eyebrow]'),nameLabel=nodeDialog.querySelector('[data-node-name-label]'),subjectField=nodeDialog.querySelector('[data-subject-field]'),chapterField=nodeDialog.querySelector('[data-chapter-field]'),parentContext=nodeDialog.querySelector('[data-node-parent-context]'),nodeSubmit=nodeDialog.querySelector('[data-node-submit]'),nodeDelete=nodeDialog.querySelector('[data-node-delete]');
+  const kindNames={subject:'科目',chapter:'章节',point:'知识点'};
+  function openNodeDialog(button){const mode=button.dataset.nodeAction,kind=button.dataset.kind,isEdit=mode==='edit';nodeForm.reset();nodeForm.action=isEdit?nodeForm.dataset.updateUrl:nodeForm.dataset.createUrl;nodeForm.elements.kind.value=kind;nodeForm.elements.id.value=isEdit?button.dataset.nodeId:'';nodeForm.elements.subject_id.value=!isEdit&&kind==='chapter'?button.dataset.parentId:'';nodeForm.elements.chapter_id.value=!isEdit&&kind==='point'?button.dataset.parentId:'';nodeForm.elements.name.value=isEdit?button.dataset.nodeName:'';nodeForm.elements.exam_code.value=isEdit&&kind==='subject'?button.dataset.examCode||'':'';nodeForm.elements.is_core.checked=kind==='chapter'&&(isEdit?button.dataset.isCore==='1':true);subjectField.hidden=kind!=='subject';chapterField.hidden=kind!=='chapter';parentContext.hidden=kind==='subject';parentContext.querySelector('b').textContent=button.dataset.parentName||'';nameLabel.textContent=`${kindNames[kind]}名称`;nodeEyebrow.textContent=isEdit?'节点详情':'新增节点';nodeTitle.textContent=`${isEdit?'编辑':'新增'}${kindNames[kind]}`;nodeSubmit.textContent=isEdit?'更新':'新增';nodeDelete.hidden=!isEdit;if(isEdit){Object.assign(nodeDelete.dataset,{kind,nodeId:button.dataset.nodeId,nodeName:button.dataset.nodeName,impactUrl:button.dataset.impactUrl})}nodeDialog.showModal();requestAnimationFrame(()=>nodeForm.elements.name.focus())}
+  tree.querySelectorAll('[data-node-action]').forEach(button=>button.addEventListener('click',()=>openNodeDialog(button)));
+  nodeDialog.querySelectorAll('[data-node-dialog-close]').forEach(button=>button.addEventListener('click',()=>nodeDialog.close()));nodeDialog.addEventListener('click',event=>{if(event.target===nodeDialog)nodeDialog.close()});nodeDelete.addEventListener('click',()=>nodeDialog.close());
+
+  const dialog=document.querySelector('[data-knowledge-delete-dialog]'),form=dialog.querySelector('form'),loading=dialog.querySelector('[data-delete-loading]'),content=dialog.querySelector('[data-delete-content]'),title=dialog.querySelector('[data-delete-title]'),summary=dialog.querySelector('[data-delete-summary]'),counts=dialog.querySelector('[data-delete-counts]'),targetField=dialog.querySelector('[data-delete-target-field]'),target=dialog.querySelector('[data-delete-target]'),blocked=dialog.querySelector('[data-delete-blocked]'),conflicts=dialog.querySelector('[data-delete-conflicts]'),mergeField=dialog.querySelector('[data-delete-merge-field]'),merge=dialog.querySelector('[data-delete-merge]'),nameField=dialog.querySelector('[data-delete-name-field]'),exactName=dialog.querySelector('[data-delete-exact-name]'),nameInput=dialog.querySelector('[data-delete-name]'),submit=dialog.querySelector('[data-delete-submit]');
+  const countNames={chapters:'章节',points:'知识点',questions:'题目',tasks:'实践任务',source_documents:'来源文档',import_jobs:'导入批次',active_imports:'运行中导入'};let state=null,impactUrl='';
+  function syncSubmit(){if(!state){submit.disabled=true;return}const targetMissing=state.nonempty&&!target.value,conflictMissing=state.conflicts?.length&&!merge.checked;submit.disabled=state.blocked_by_import||state.has_ambiguous_conflicts||targetMissing||conflictMissing}
+  function renderConflicts(data){state={...state,...data};conflicts.hidden=true;mergeField.hidden=true;blocked.hidden=true;blocked.textContent='';if(data.blocked_by_import){blocked.hidden=false;blocked.textContent='该科目存在正在排队或运行的导入任务，请等待完成或先中断任务。'}else if(data.nonempty&&!data.targets.length){blocked.hidden=false;blocked.textContent=`没有可用的目标${kindNames[data.kind]}，请先新建目标后再删除。`}else if(data.has_ambiguous_conflicts){blocked.hidden=false;blocked.textContent='当前迁移结构或目标中存在多个同名节点，请先在知识树中重命名或合并。'}else if(data.conflicts?.length){conflicts.hidden=false;conflicts.innerHTML=`<b>发现 ${data.conflicts.length} 个同名冲突：</b><ul>${data.conflicts.map(item=>`<li>${kindNames[item.kind]}“${item.name}”</li>`).join('')}</ul>`;mergeField.hidden=false}syncSubmit()}
+  function renderBase(data){state=data;loading.hidden=true;content.hidden=false;title.textContent=`删除${kindNames[data.kind]}“${data.source.name}”`;summary.textContent=data.nonempty?'该节点包含内容，必须迁移后才能删除。题目 ID、进度和历史记录不会改变。':'这是一个空节点，确认后可直接删除。';counts.innerHTML=Object.entries(data.counts).filter(([key,value])=>value&&key!=='active_imports').map(([key,value])=>`<div><strong>${value}</strong><small>${countNames[key]||key}</small></div>`).join('')||'<div><strong>0</strong><small>关联内容</small></div>';form.elements.kind.value=data.kind;form.elements.node_id.value=data.source.id;targetField.hidden=!data.nonempty;nameField.hidden=!data.nonempty;exactName.textContent=data.source.name;nameInput.required=data.nonempty;target.innerHTML='<option value="">请选择目标节点</option>'+data.targets.map(item=>`<option value="${item.id}">${item.label}</option>`).join('');merge.checked=false;renderConflicts(data)}
+  async function load(url){loading.hidden=false;content.hidden=true;submit.disabled=true;const response=await fetch(url,{headers:{Accept:'application/json'}}),data=await response.json();if(!response.ok)throw new Error(data.error||'无法分析删除影响');return data}
+  document.querySelectorAll('.knowledge-delete-trigger,[data-node-delete]').forEach(button=>button.addEventListener('click',async()=>{impactUrl=button.dataset.impactUrl;form.reset();loading.textContent='正在分析关联内容…';loading.classList.remove('bad');loading.hidden=false;content.hidden=true;dialog.showModal();try{renderBase(await load(impactUrl))}catch(error){loading.hidden=false;loading.textContent=error.message;loading.classList.add('bad')}}));
+  target.addEventListener('change',async()=>{merge.checked=false;if(!target.value){state={...state,conflicts:[],has_ambiguous_conflicts:false};renderConflicts(state);return}try{renderConflicts(await load(`${impactUrl}?target_id=${encodeURIComponent(target.value)}`));loading.hidden=true;content.hidden=false}catch(error){blocked.hidden=false;blocked.textContent=error.message;submit.disabled=true}});merge.addEventListener('change',syncSubmit);
+  dialog.querySelectorAll('[data-delete-close]').forEach(button=>button.addEventListener('click',()=>dialog.close()));dialog.addEventListener('click',event=>{if(event.target===dialog)dialog.close()});
+  const params=new URLSearchParams(location.search),focusKind=params.get('focus_kind'),focusId=params.get('focus_id');if(focusKind&&focusId){const focus=document.querySelector(`#knowledge-${focusKind}-${CSS.escape(focusId)}`);if(focus){const subject=focus.closest('.knowledge-subject'),chapter=focus.closest('.knowledge-chapter');if(subject)setExpanded(subject,true);if(chapter)setExpanded(chapter,true);focus.classList.add('is-focus-pulse');requestAnimationFrame(()=>focus.scrollIntoView({behavior:'smooth',block:'center'}))}}
+})();
+</script>{% endblock %}
