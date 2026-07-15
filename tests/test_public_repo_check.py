@@ -54,6 +54,24 @@ class PublicRepositoryCheckTests(unittest.TestCase):
         self.assertEqual({item.path for item in findings}, set(files))
         self.assertTrue(all(item.source == "index" for item in findings))
 
+    def test_only_fixed_readme_screenshots_are_allowed(self):
+        allowed = {
+            "docs/assets/desktop.jpg": b"public desktop screenshot",
+            "docs/assets/mobile.jpg": b"public mobile screenshot",
+        }
+        for relative, content in allowed.items():
+            path = self.repo / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        self.git("add", "-f", *allowed)
+        self.assertEqual(scan_repository(self.repo, include_history=False), [])
+
+        other = self.repo / "docs" / "assets" / "question.png"
+        other.write_bytes(b"question image")
+        self.git("add", "-f", "docs/assets/question.png")
+        findings = scan_repository(self.repo, include_history=False)
+        self.assertEqual([item.path for item in findings], ["docs/assets/question.png"])
+
     def test_deleted_sensitive_file_still_fails_history_check(self):
         leak = self.repo / "old-bank.pdf"
         leak.write_bytes(b"%PDF historical leak")

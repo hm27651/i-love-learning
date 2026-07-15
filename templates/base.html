@@ -42,7 +42,7 @@
           <div class="nav-label">管理</div>
           <a class="nav-item {{ 'active' if request.endpoint in ['questions','question_form','question_review'] }}" href="{{ url_for('questions') }}"><span class="nav-icon">题</span><span>题库</span></a>
           <a class="nav-item {{ 'active' if request.endpoint in ['knowledge','toggle_core','knowledge_rename'] }}" href="{{ url_for('knowledge') }}"><span class="nav-icon">树</span><span>知识树</span></a>
-          <a class="nav-item {{ 'active' if request.endpoint in ['imports_center','import_detail'] }}" href="{{ url_for('imports_center') }}"><span class="nav-icon">导</span><span>导入中心</span></a>
+          <a class="nav-item {{ 'active' if request.endpoint in ['imports_center','import_detail','export_create','export_download'] }}" href="{{ url_for('imports_center') }}"><span class="nav-icon">传</span><span>导入与导出</span></a>
           <a class="nav-item {{ 'active' if request.endpoint in ['projects','project_form'] }}" href="{{ url_for('projects') }}"><span class="nav-icon">项</span><span>项目管理</span></a>
           <a class="nav-item {{ 'active' if request.endpoint=='app_settings' }}" href="{{ url_for('app_settings') }}"><span class="nav-icon">设</span><span>设置</span></a>
         </div>
@@ -81,7 +81,7 @@
     <div class="more-grid">
       {% if current_modules.mock %}<a href="{{ url_for('mock_setup') }}"><span>模</span>模拟考试</a>{% endif %}{% if current_modules.tasks %}<a href="{{ url_for('labs') }}"><span>验</span>{{ current_project.practice_alias }}</a>{% endif %}
       {% if current_modules.plan %}<a href="{{ url_for('plans') }}"><span>周</span>学习计划</a>{% endif %}<a href="{{ url_for('questions') }}"><span>题</span>题库管理</a>
-      <a href="{{ url_for('knowledge') }}"><span>树</span>知识树</a><a href="{{ url_for('imports_center') }}"><span>导</span>导入中心</a>
+      <a href="{{ url_for('knowledge') }}"><span>树</span>知识树</a><a href="{{ url_for('imports_center') }}"><span>传</span>导入与导出</a>
       <a href="{{ url_for('projects') }}"><span>项</span>项目管理</a><a href="{{ url_for('app_settings') }}"><span>设</span>设置</a>
     </div>
   </aside>

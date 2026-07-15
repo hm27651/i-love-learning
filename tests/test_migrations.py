@@ -14,7 +14,7 @@ class MigrationTests(unittest.TestCase):
         version = migrate_database(conn)
         counts = {
             table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-            for table in ("questions", "source_documents", "import_jobs", "attempts", "question_progress")
+            for table in ("questions", "source_documents", "import_jobs", "export_jobs", "attempts", "question_progress")
         }
         structure = {
             table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -22,7 +22,7 @@ class MigrationTests(unittest.TestCase):
         }
         integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
         conn.close()
-        self.assertEqual(version, 1)
+        self.assertEqual(version, 2)
         self.assertEqual(counts, {key: 0 for key in counts})
         self.assertEqual(structure, {key: 1 for key in structure})
         self.assertEqual(integrity, "ok")
@@ -42,6 +42,7 @@ class MigrationTests(unittest.TestCase):
             before = {table: conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] for table in (
                 "questions", "attempts", "question_progress", "practice_sessions", "labs", "weekly_plans", "mock_exams", "subjects"
             )}
+            before_project = conn.execute("SELECT name,project_type,practice_alias FROM learning_projects").fetchone()
             version = migrate_database(conn)
             conn.commit()
             after_ids = [row[0] for row in conn.execute("SELECT id FROM questions ORDER BY id")]
@@ -49,10 +50,10 @@ class MigrationTests(unittest.TestCase):
             project = conn.execute("SELECT name,project_type,practice_alias FROM learning_projects").fetchone()
             foreign_key_errors = conn.execute("PRAGMA foreign_key_check").fetchall()
             conn.close()
-        self.assertEqual(version, 1)
+        self.assertEqual(version, 2)
         self.assertEqual(before, after)
         self.assertEqual(before_ids, after_ids)
-        self.assertEqual(project, ("H3CSE", "practical_certification", "HCL实验"))
+        self.assertEqual(project, before_project)
         self.assertFalse(foreign_key_errors)
 
 

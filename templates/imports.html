@@ -1,9 +1,36 @@
-{% extends 'base.html' %}{% block title %}导入中心 · I Love Learning{% endblock %}{% block content %}
-<div class="page-head"><div><div class="eyebrow">通用题库</div><h1>导入中心</h1><div class="lead">支持结构化 PDF、DOCX 和固定模板 XLSX、CSV；所有题目先进入草稿。</div></div><div class="actions"><a class="button secondary" href="{{ url_for('questions',classification='uncategorized',status='draft') }}">审核待分类题</a><a class="button secondary" href="{{ url_for('import_template',file_type='xlsx') }}">下载 XLSX 模板</a><a class="button secondary" href="{{ url_for('import_template',file_type='csv') }}">下载 CSV 模板</a></div></div>
-<form method="post" enctype="multipart/form-data" class="card form-grid">
-  <div class="field full"><label>选择题库文件</label><input type="file" name="file" required accept=".pdf,.docx,.xlsx,.csv"><small>单文件上限 {{ cfg.max_import_mb }}MB。PDF/DOCX 必须具有可复制的结构化文本，不做 OCR。</small></div>
-  <div class="field full"><div class="danger-note">DOC、XLS、扫描版 PDF 和未知版式会停止导入并生成异常信息，不会写入部分题目。</div></div>
-  <div class="field full"><button>上传并开始探测</button></div>
-</form>
-<section class="card section-gap"><h2>最近导入任务</h2><div class="table-wrap"><table><thead><tr><th>文件</th><th>阶段</th><th>进度</th><th>题目</th><th>操作</th></tr></thead><tbody>{% for job in jobs %}<tr><td><b>{{ job.original_name }}</b><br><small>{{ job.file_type|upper }} · {{ job.created_at }}</small></td><td><span class="badge {{ 'verified' if job.status in ['ready','committed'] else 'draft' if job.status in ['queued','running','waiting_target'] else 'archived' }}">{{ job.status }}</span><br><small>{{ job.message }}</small></td><td>{{ job.progress }}%</td><td>{{ job.candidate_count }}</td><td><a class="button small secondary" href="{{ url_for('import_detail',job_id=job.id) }}">查看</a></td></tr>{% else %}<tr><td colspan="5" class="empty">还没有导入任务。</td></tr>{% endfor %}</tbody></table></div></section>
-{% endblock %}
+{% extends 'base.html' %}{% block title %}导入与导出 · I Love Learning{% endblock %}{% block content %}
+<div class="page-head"><div><div class="eyebrow">题库分享</div><h1>导入与导出</h1><div class="lead">导入常用题库文件，或把当前项目的题目打包分享给另一台“我爱学习”。</div></div><div class="actions"><a class="button secondary" href="{{ url_for('questions',classification='uncategorized',status='draft') }}">审核待分类题</a><a class="button secondary" href="{{ url_for('import_template',file_type='xlsx') }}">XLSX 模板</a><a class="button secondary" href="{{ url_for('import_template',file_type='csv') }}">CSV 模板</a></div></div>
+
+<div class="transfer-tabs" role="tablist" aria-label="导入与导出切换">
+  <button type="button" class="secondary" data-transfer-tab="import">导入题库</button>
+  <button type="button" class="secondary" data-transfer-tab="export">导出分享</button>
+</div>
+
+<div data-transfer-panel="import">
+  <form method="post" enctype="multipart/form-data" class="card form-grid">
+    <div class="field full"><label>选择题库文件</label><input type="file" name="file" required accept=".zip,.pdf,.docx,.xlsx,.csv"><small>支持“我爱学习”ZIP 分享包、结构化 PDF/DOCX 和固定模板 XLSX/CSV；单文件上限 {{ cfg.max_import_mb }}MB。</small></div>
+    <div class="field full"><div class="danger-note">ZIP 会先进行完整性与安全校验。普通文档不做 OCR，DOC、XLS、扫描版 PDF 和未知版式会停止导入，不会部分写入题目。</div></div>
+    <div class="field full"><button>上传并开始校验</button></div>
+  </form>
+  <section class="card section-gap"><h2>最近导入任务</h2><div class="transfer-job-list">{% for job in jobs %}<article class="transfer-job"><div><b>{{ job.original_name }}</b><small>{{ job.file_type|upper }} · {{ job.created_at }}</small></div><div><span class="badge {{ 'verified' if job.status in ['ready','committed'] else 'draft' if job.status in ['queued','running','waiting_target','waiting_mapping'] else 'archived' }}">{{ job.status }}</span><small>{{ job.message }}</small></div><div class="job-progress"><div class="progress"><i style="width:{{ job.progress }}%"></i></div><small>{{ job.progress }}% · {{ job.candidate_count }} 道</small></div><a class="button small secondary" href="{{ url_for('import_detail',job_id=job.id) }}">查看</a></article>{% else %}<div class="empty">还没有导入任务。</div>{% endfor %}</div></section>
+</div>
+
+<div data-transfer-panel="export" hidden>
+  <form method="post" action="{{ url_for('export_create') }}" class="card form-grid" id="export-form">
+    <div class="field"><label>导出范围</label><select name="scope_type" id="export-scope"><option value="project">当前项目 · {{ project.name }}</option><option value="subject">单个科目</option><option value="chapter">单个章节</option></select></div>
+    <div class="field"><label>具体范围</label><select name="scope_id" id="export-scope-id" disabled><option value="">整个当前项目</option>{% for s in subjects %}<option value="{{ s.id }}" data-kind="subject">{{ s.code or s.name }} · {{ s.name }}</option>{% endfor %}{% for c in chapters %}<option value="{{ c.id }}" data-kind="chapter">{{ c.subject_name }} · {{ c.name }}</option>{% endfor %}</select></div>
+    <div class="field full"><label class="checkline"><input type="checkbox" name="include_drafts" id="export-drafts"> 同时包含草稿题</label><small>默认只导出已核验题；归档题始终排除。</small></div>
+    <div class="field full"><div class="export-estimate" id="export-estimate">正在计算预计题量…</div></div>
+    <div class="field full"><button id="export-submit">后台生成分享包</button></div>
+  </form>
+  <section class="card section-gap"><div class="split"><div><h2>导出任务</h2><p class="muted">分享包保留 7 天，可重复下载。删除任务不会删除题库内容。</p></div></div><div class="transfer-job-list">{% for job in exports %}<article class="transfer-job"><div><b>{{ job.filename or ('分享包 · ' ~ job.scope_type) }}</b><small>{{ job.created_at }}{% if job.expires_at %} · {{ job.expires_at }} 过期{% endif %}</small></div><div><span class="badge {{ 'verified' if job.status=='completed' else 'draft' if job.status in ['queued','running'] else 'archived' }}">{{ job.status }}</span><small>{{ job.message }}{% if job.missing_image_count %} · 缺图 {{ job.missing_image_count }}{% endif %}</small></div><div class="job-progress"><div class="progress"><i style="width:{{ job.progress }}%"></i></div><small>{{ job.progress }}% · {{ job.question_count }} 道{% if job.size_bytes %} · {{ (job.size_bytes/1024/1024)|round(2) }}MB{% endif %}</small></div><div class="actions">{% if job.status=='completed' %}<a class="button small" href="{{ url_for('export_download',job_id=job.id) }}">下载</a>{% endif %}{% if job.status in ['failed','interrupted'] %}<form method="post" action="{{ url_for('export_retry',job_id=job.id) }}"><button class="small secondary">重试</button></form>{% endif %}{% if job.status not in ['queued','running'] %}<form method="post" action="{{ url_for('export_delete',job_id=job.id) }}" onsubmit="return confirm('只删除分享包和任务记录，确定继续？')"><button class="small danger">删除</button></form>{% endif %}</div></article>{% else %}<div class="empty">还没有导出任务。</div>{% endfor %}</div></section>
+</div>
+{% endblock %}{% block scripts %}<script>
+const tabs=[...document.querySelectorAll('[data-transfer-tab]')],panels=[...document.querySelectorAll('[data-transfer-panel]')];
+function showTab(name){tabs.forEach(x=>x.classList.toggle('active',x.dataset.transferTab===name));panels.forEach(x=>x.hidden=x.dataset.transferPanel!==name);history.replaceState(null,'',`?tab=${name}`)}
+tabs.forEach(x=>x.addEventListener('click',()=>showTab(x.dataset.transferTab)));showTab(new URLSearchParams(location.search).get('tab')==='export'?'export':'import');
+const scope=document.querySelector('#export-scope'),scopeId=document.querySelector('#export-scope-id'),drafts=document.querySelector('#export-drafts'),estimate=document.querySelector('#export-estimate'),submit=document.querySelector('#export-submit');
+async function refreshCount(){const kind=scope.value;scopeId.disabled=kind==='project';[...scopeId.options].forEach((x,i)=>x.hidden=i>0&&x.dataset.kind!==kind);if(kind==='project')scopeId.value='';else if(!scopeId.value||scopeId.selectedOptions[0]?.hidden){scopeId.value=[...scopeId.options].find(x=>x.dataset.kind===kind)?.value||''}const p=new URLSearchParams({scope_type:kind,scope_id:scopeId.value,include_drafts:drafts.checked?'1':'0'});try{const r=await fetch(`{{ url_for('export_count_api') }}?${p}`),d=await r.json();estimate.textContent=d.error||`预计导出 ${d.count} 道题${drafts.checked?'（含草稿）':'（仅已核验）'}`;submit.disabled=!!d.error||!d.count}catch(e){estimate.textContent='暂时无法计算题量';submit.disabled=true}}
+[scope,scopeId,drafts].forEach(x=>x.addEventListener('change',refreshCount));refreshCount();
+{% if has_active_exports %}setTimeout(()=>location.reload(),1800);{% endif %}
+</script>{% endblock %}

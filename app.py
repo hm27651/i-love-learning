@@ -19,6 +19,7 @@ from werkzeug.utils import secure_filename
 
 from migrations import LATEST_SCHEMA, PROJECT_MODULE_DEFAULTS, PROJECT_SETTING_DEFAULTS, create_project, migrate_database
 from import_service import ImportQueue, PARSER_VERSION, SUPPORTED_TYPES, commit_job
+from transfer_service import ExportQueue, cleanup_expired_exports, count_export_questions
 from knowledge_service import (
     KnowledgeDeleteError,
     analyze_delete,
@@ -1221,8 +1222,35 @@ def import_job_for_browser(conn, job_id):
     return job
 
 
+def export_job_for_browser(conn, job_id):
+    project_id = current_project(conn)["id"]
+    job = conn.execute("SELECT * FROM export_jobs WHERE id=? AND project_id=?", (job_id, project_id)).fetchone()
+    if not job:
+        abort(404)
+    return job
+
+
+def package_mapping_suggestions(conn, project_id, package):
+    targets = conn.execute("SELECT id,name,code FROM subjects WHERE project_id=? ORDER BY id", (project_id,)).fetchall()
+    mappings, conflicts = {}, []
+    for source in package.get("subjects", []):
+        code = (source.get("code") or "").strip().casefold()
+        name = (source.get("name") or "").strip().casefold()
+        by_code = next((row for row in targets if code and (row["code"] or "").strip().casefold() == code), None)
+        by_name = next((row for row in targets if (row["name"] or "").strip().casefold() == name), None)
+        if by_code and by_name and by_code["id"] != by_name["id"]:
+            conflicts.append({"key": source["key"], "name": source["name"], "code": source.get("code", ""),
+                              "code_target": by_code["id"], "name_target": by_name["id"]})
+            target_id = None
+        else:
+            target_id = (by_code or by_name)["id"] if (by_code or by_name) else None
+        mappings[source["key"]] = {"target_subject_id": target_id, "name": source["name"], "code": source.get("code", "")}
+    return {"subjects": mappings, "conflicts": conflicts}
+
+
 @app.route("/imports", methods=["GET", "POST"])
 def imports_center():
+    cleanup_expired_exports(DB_PATH, DATA_DIR)
     with db() as conn:
         project = current_project(conn); project_id = project["id"]
         if request.method == "POST":
@@ -1247,7 +1275,7 @@ def imports_center():
             uploaded.save(stored_path)
             digest = hashlib.sha256(stored_path.read_bytes()).hexdigest()
             status = "queued" if ext in SUPPORTED_TYPES else "failed"
-            message = "等待文件探测" if status == "queued" else "不支持该格式；仅支持 PDF、DOCX、XLSX、CSV，不支持 DOC、XLS 和未知版式"
+            message = "等待文件探测" if status == "queued" else "不支持该格式；仅支持 ZIP、PDF、DOCX、XLSX、CSV，不支持 DOC、XLS 和未知版式"
             now = now_iso()
             conn.execute("""INSERT INTO source_documents(id,original_name,stored_path,sha256,file_type,size_bytes,created_at)
               VALUES (?,?,?,?,?,?,?)""", (document_id, original_name, str(stored_relative), digest, ext or "unknown", size, now))
@@ -1270,7 +1298,13 @@ def imports_center():
             params.extend(personal_ids)
         rows = conn.execute(f"""SELECT j.*,d.original_name,d.file_type FROM import_jobs j JOIN source_documents d
           ON d.id=j.source_document_id WHERE {where} ORDER BY j.created_at DESC LIMIT 50""", params).fetchall()
-        return render_template("imports.html", jobs=rows, cfg=settings(conn))
+        export_rows = conn.execute("SELECT * FROM export_jobs WHERE project_id=? ORDER BY created_at DESC LIMIT 50", (project_id,)).fetchall()
+        subjects = conn.execute("SELECT id,name,code FROM subjects WHERE project_id=? ORDER BY id", (project_id,)).fetchall()
+        chapters = conn.execute("""SELECT c.id,c.name,c.subject_id,s.name subject_name FROM chapters c
+          JOIN subjects s ON s.id=c.subject_id WHERE s.project_id=? ORDER BY s.id,c.id""", (project_id,)).fetchall()
+        return render_template("imports.html", jobs=rows, exports=export_rows, cfg=settings(conn),
+                               subjects=subjects, chapters=chapters, project=project,
+                               has_active_exports=any(row["status"] in {"queued", "running"} for row in export_rows))
 
 
 @app.get("/imports/<job_id>")
@@ -1282,6 +1316,8 @@ def import_detail(job_id):
         candidates = conn.execute("SELECT * FROM import_candidates WHERE job_id=? ORDER BY item_index LIMIT 200", (job_id,)).fetchall()
         return render_template("import_detail.html", job=job, projects=project_rows, subjects=subject_rows,
                                candidates=candidates, detected=json.loads(job["detected_json"] or "{}"),
+                               package=json.loads(job["package_json"] or "{}"),
+                               mapping=json.loads(job["mapping_json"] or "{}"),
                                errors=json.loads(job["error_json"] or "[]"))
 
 
@@ -1297,10 +1333,30 @@ def import_status_api(job_id):
 def import_target(job_id):
     with db() as conn:
         job = import_job_for_browser(conn, job_id)
-        project_id = request.form.get("project_id", type=int)
+        detected = json.loads(job["detected_json"] or "{}")
+        new_project_name = request.form.get("new_project_name", "").strip()
+        if job["import_kind"] == "package" and new_project_name:
+            package_type = detected.get("package", {}).get("project", {}).get("type", "practice")
+            if package_type not in PROJECT_MODULE_DEFAULTS:
+                package_type = "practice"
+            project_id = create_project(conn, new_project_name, package_type)
+        else:
+            project_id = request.form.get("project_id", type=int)
         project = conn.execute("SELECT * FROM learning_projects WHERE id=? AND status='active'", (project_id,)).fetchone()
         if not project:
             abort(400)
+        if job["import_kind"] == "package":
+            package = detected.get("package", {})
+            mapping = package_mapping_suggestions(conn, project_id, package)
+            now = now_iso()
+            conn.execute("UPDATE source_documents SET project_id=?,subject_id=NULL WHERE id=?", (project_id, job["source_document_id"]))
+            conn.execute("""UPDATE import_jobs SET project_id=?,subject_id=NULL,status='waiting_mapping',stage='mapping',
+              progress=25,message='请选择科目映射',mapping_json=?,updated_at=? WHERE id=?""",
+              (project_id, json.dumps(mapping, ensure_ascii=False), now, job_id))
+            conn.commit()
+            session["current_project_id"] = project_id
+            flash("目标项目已确认，请检查科目映射", "success")
+            return redirect(url_for("import_detail", job_id=job_id))
         subject_id = request.form.get("subject_id", type=int)
         if request.form.get("new_subject_name", "").strip():
             try:
@@ -1324,14 +1380,52 @@ def import_target(job_id):
     return redirect(url_for("import_detail", job_id=job_id))
 
 
+@app.post("/imports/<job_id>/mapping")
+def import_mapping(job_id):
+    with db() as conn:
+        job = import_job_for_browser(conn, job_id)
+        if job["import_kind"] != "package" or job["status"] != "waiting_mapping" or not job["project_id"]:
+            abort(400)
+        detected = json.loads(job["detected_json"] or "{}")
+        suggested = json.loads(job["mapping_json"] or "{}").get("subjects", {})
+        result, used = {}, set()
+        for source in detected.get("package", {}).get("subjects", []):
+            raw = request.form.get(f"map_{source['key']}", "")
+            if not raw:
+                value = suggested.get(source["key"], {}).get("target_subject_id")
+            elif raw == "new":
+                value = None
+            elif raw.isdigit():
+                value = int(raw)
+            else:
+                flash("科目映射格式无效", "error")
+                return redirect(url_for("import_detail", job_id=job_id))
+            if value:
+                if value in used or not conn.execute(
+                    "SELECT 1 FROM subjects WHERE id=? AND project_id=?", (value, job["project_id"])
+                ).fetchone():
+                    flash("不同来源科目不能映射到同一个目标科目", "error")
+                    return redirect(url_for("import_detail", job_id=job_id))
+                used.add(value)
+            result[source["key"]] = {"target_subject_id": value, "name": source["name"], "code": source.get("code", "")}
+        conn.execute("""UPDATE import_jobs SET mapping_json=?,status='queued',stage='parsing',progress=30,
+          message='等待解析分享包',updated_at=? WHERE id=?""",
+          (json.dumps({"subjects": result}, ensure_ascii=False), now_iso(), job_id))
+        conn.commit()
+        import_queue.submit_parse(job_id)
+    flash("科目映射已确认，正在解析分享包", "success")
+    return redirect(url_for("import_detail", job_id=job_id))
+
+
 @app.post("/imports/<job_id>/retry")
 def import_retry(job_id):
     with db() as conn:
         job = import_job_for_browser(conn, job_id)
+        package_ready = job["import_kind"] == "package" and bool(json.loads(job["mapping_json"] or "{}").get("subjects"))
         conn.execute("UPDATE import_jobs SET status='queued',progress=?,message='等待重试',updated_at=? WHERE id=?",
-                     (25 if job["subject_id"] else 0, now_iso(), job_id))
+                     (25 if job["subject_id"] or package_ready else 0, now_iso(), job_id))
         conn.commit()
-        if job["subject_id"]:
+        if job["subject_id"] or package_ready:
             import_queue.submit_parse(job_id)
         else:
             import_queue.submit_detect(job_id)
@@ -1347,12 +1441,145 @@ def import_commit(job_id):
         decisions = {candidate["id"]: request.form.get(f"decision_{candidate['id']}") for candidate in candidates
                      if request.form.get(f"decision_{candidate['id']}")}
         try:
-            result = commit_job(conn, job_id, decisions, request.form.get("duplicate_action", "skip"))
+            result = commit_job(
+                conn,
+                job_id,
+                decisions,
+                request.form.get("duplicate_action", "skip"),
+                request.form.get("status_strategy", "draft"),
+                DATA_DIR,
+            )
         except ValueError as exc:
+            conn.rollback()
             flash(str(exc), "error")
             return redirect(url_for("import_detail", job_id=job_id))
     flash(f"导入完成：{result['message']}", "success")
     return redirect(url_for("import_detail", job_id=job_id))
+
+
+def _export_scope_id() -> int | None:
+    value = request.form.get("scope_id", "").strip()
+    return int(value) if value.isdigit() else None
+
+
+def _validate_export_scope(conn, project_id: int, scope_type: str, scope_id: int | None) -> None:
+    if scope_type == "project":
+        return
+    if scope_type == "subject":
+        valid = conn.execute("SELECT 1 FROM subjects WHERE id=? AND project_id=?", (scope_id, project_id)).fetchone()
+    elif scope_type == "chapter":
+        valid = conn.execute("""SELECT 1 FROM chapters c JOIN subjects s ON s.id=c.subject_id
+          WHERE c.id=? AND s.project_id=?""", (scope_id, project_id)).fetchone()
+    else:
+        valid = None
+    if not valid:
+        raise ValueError("请选择当前项目内的有效导出范围")
+
+
+@app.post("/exports")
+def export_create():
+    with db() as conn:
+        project_id = current_project(conn)["id"]
+        scope_type = request.form.get("scope_type", "project")
+        scope_id = _export_scope_id()
+        include_drafts = int("include_drafts" in request.form)
+        try:
+            _validate_export_scope(conn, project_id, scope_type, scope_id)
+            count = count_export_questions(conn, project_id, scope_type, scope_id, bool(include_drafts))
+        except ValueError as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("imports_center", tab="export"))
+        if not count:
+            flash("当前范围没有可导出的已核验题或草稿题", "error")
+            return redirect(url_for("imports_center", tab="export"))
+        job_id = uuid.uuid4().hex
+        now = now_iso()
+        conn.execute("""INSERT INTO export_jobs(id,project_id,scope_type,scope_id,include_drafts,status,stage,
+          progress,message,question_count,created_at,updated_at) VALUES (?,?,?,?,?,'queued','queued',0,?,?,?,?)""",
+          (job_id, project_id, scope_type, scope_id, include_drafts, "等待生成分享包", count, now, now))
+        conn.commit()
+        export_queue.submit(job_id)
+    flash(f"已创建导出任务，预计包含 {count} 道题", "success")
+    return redirect(url_for("imports_center", tab="export"))
+
+
+@app.get("/api/exports/count")
+def export_count_api():
+    with db() as conn:
+        project_id = current_project(conn)["id"]
+        scope_type = request.args.get("scope_type", "project")
+        raw_scope_id = request.args.get("scope_id", "")
+        scope_id = int(raw_scope_id) if raw_scope_id.isdigit() else None
+        include_drafts = request.args.get("include_drafts") in {"1", "true", "on"}
+        try:
+            _validate_export_scope(conn, project_id, scope_type, scope_id)
+            count = count_export_questions(conn, project_id, scope_type, scope_id, include_drafts)
+        except ValueError as exc:
+            return {"count": 0, "error": str(exc)}, 400
+        return {"count": count}
+
+
+@app.get("/api/exports/<job_id>")
+def export_status_api(job_id):
+    with db() as conn:
+        job = export_job_for_browser(conn, job_id)
+        return {key: job[key] for key in (
+            "id", "status", "stage", "progress", "message", "question_count", "image_count",
+            "missing_image_count", "size_bytes", "sha256", "filename", "created_at", "completed_at", "expires_at"
+        )}
+
+
+def _export_file_path(job) -> Path | None:
+    if not job["stored_path"]:
+        return None
+    root = (DATA_DIR / "exports").resolve()
+    path = (DATA_DIR / job["stored_path"]).resolve()
+    return path if path.parent == root else None
+
+
+@app.get("/exports/<job_id>/download")
+def export_download(job_id):
+    with db() as conn:
+        job = export_job_for_browser(conn, job_id)
+        if job["status"] != "completed" or (job["expires_at"] and job["expires_at"] <= now_iso()):
+            abort(404)
+        path = _export_file_path(job)
+        if not path or not path.is_file():
+            abort(404)
+        return send_file(path, mimetype="application/zip", as_attachment=True, download_name=job["filename"])
+
+
+@app.post("/exports/<job_id>/retry")
+def export_retry(job_id):
+    with db() as conn:
+        job = export_job_for_browser(conn, job_id)
+        if job["status"] not in {"failed", "interrupted"}:
+            abort(400)
+        old_path = _export_file_path(job)
+        if old_path:
+            old_path.unlink(missing_ok=True)
+        conn.execute("""UPDATE export_jobs SET status='queued',stage='queued',progress=0,message='等待重新生成',
+          stored_path=NULL,filename=NULL,size_bytes=0,sha256='',warning_json='[]',error_json='[]',
+          completed_at=NULL,expires_at=NULL,updated_at=? WHERE id=?""", (now_iso(), job_id))
+        conn.commit()
+        export_queue.submit(job_id)
+    flash("导出任务已重新排队", "success")
+    return redirect(url_for("imports_center", tab="export"))
+
+
+@app.post("/exports/<job_id>/delete")
+def export_delete(job_id):
+    with db() as conn:
+        job = export_job_for_browser(conn, job_id)
+        if job["status"] in {"queued", "running"}:
+            flash("正在生成的任务不能删除，请等待完成或中断", "error")
+            return redirect(url_for("imports_center", tab="export"))
+        path = _export_file_path(job)
+        if path:
+            path.unlink(missing_ok=True)
+        conn.execute("DELETE FROM export_jobs WHERE id=?", (job_id,))
+    flash("分享包和任务记录已删除，题库内容不受影响", "success")
+    return redirect(url_for("imports_center", tab="export"))
 
 
 @app.get("/imports/template/<file_type>")
@@ -1402,6 +1629,7 @@ def app_settings():
                 for key, value in global_values.items():
                     conn.execute("INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
                 app.config["MAX_CONTENT_LENGTH"] = int(global_values["max_import_mb"]) * 1024 * 1024
+                export_queue.max_bytes = app.config["MAX_CONTENT_LENGTH"]
                 flash("设置已保存", "success")
                 return redirect(url_for("app_settings"))
         cfg = project_settings(conn, project_id) | settings(conn)
@@ -1414,6 +1642,8 @@ with db() as _startup_conn:
     app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("STUDY_MAX_UPLOAD_MB") or settings(_startup_conn).get("max_import_mb", "50")) * 1024 * 1024
 import_queue = ImportQueue(DB_PATH, DATA_DIR)
 import_queue.recover()
+export_queue = ExportQueue(DB_PATH, DATA_DIR, app.config["MAX_CONTENT_LENGTH"])
+export_queue.recover()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=APP_PORT, debug=False)

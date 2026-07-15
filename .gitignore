@@ -37,3 +37,7 @@ __pycache__/
 *.zip
 *.rar
 *.7z
+
+# Public README screenshots only; question and import images remain ignored.
+!/docs/assets/
+!/docs/assets/*.jpg

@@ -53,6 +53,10 @@ PROTECTED_SUFFIXES = {
 }
 
 SPECIAL_SUFFIXES = (".db-wal", ".db-shm")
+PUBLIC_README_ASSETS = {
+    "docs/assets/desktop.jpg",
+    "docs/assets/mobile.jpg",
+}
 
 
 @dataclass(frozen=True)
@@ -80,6 +84,8 @@ def sensitive_reason(path: str) -> str | None:
     normalized = path.replace("\\", "/")
     while normalized.startswith("./"):
         normalized = normalized[2:]
+    if normalized.casefold() in PUBLIC_README_ASSETS:
+        return None
     pure = PurePosixPath(normalized)
     parts = pure.parts
     if parts and parts[0].casefold() in {item.casefold() for item in PROTECTED_ROOTS}:

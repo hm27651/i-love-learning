@@ -4,16 +4,19 @@ import csv
 import hashlib
 import json
 import re
+import shutil
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from difflib import SequenceMatcher
-from pathlib import Path
+from pathlib import Path, PurePath
+
+from transfer_service import PACKAGE_VERSION, inspect_share_package
 
 
 PARSER_VERSION = "study-import-1.0"
-SUPPORTED_TYPES = {"pdf", "docx", "xlsx", "csv"}
+SUPPORTED_TYPES = {"pdf", "docx", "xlsx", "csv", "zip"}
 TYPE_ALIASES = {
     "单选": "single", "单选题": "single", "single": "single",
     "多选": "multiple", "多选题": "multiple", "multiple": "multiple",
@@ -239,6 +242,26 @@ def detect_job(db_path: Path, data_dir: Path, job_id: str) -> None:
         conn.commit()
         row = conn.execute("""SELECT j.*,d.original_name,d.stored_path,d.file_type FROM import_jobs j
           JOIN source_documents d ON d.id=j.source_document_id WHERE j.id=?""", (job_id,)).fetchone()
+        if row["file_type"] == "zip":
+            manifest, questions = inspect_share_package(data_dir / row["stored_path"])
+            project_name = manifest.get("project", {}).get("name", "")
+            project_ids = [item["id"] for item in conn.execute(
+                "SELECT id,name FROM learning_projects WHERE status='active'"
+            ) if normalize_text(item["name"]) == normalize_text(project_name)]
+            detected = {
+                "project_ids": project_ids,
+                "reason": "已识别我爱学习题库分享包，请选择目标项目",
+                "package": {
+                    "version": manifest["version"], "project": manifest["project"], "scope": manifest["scope"],
+                    "counts": manifest["counts"], "subjects": manifest["subjects"],
+                    "warnings": manifest.get("warnings", []),
+                },
+            }
+            conn.execute("""UPDATE import_jobs SET import_kind='package',status='waiting_target',stage='target',
+              progress=20,detected_json=?,package_json=?,message='分享包已验证，请选择目标项目',updated_at=? WHERE id=?""",
+              (json.dumps(detected, ensure_ascii=False), json.dumps(manifest, ensure_ascii=False), now_iso(), job_id))
+            conn.commit()
+            return
         filename = row["original_name"]
         probe = probe_document(data_dir / row["stored_path"], row["file_type"])
         haystack = filename + "\n" + probe
@@ -270,6 +293,9 @@ def parse_job(db_path: Path, data_dir: Path, job_id: str) -> None:
         conn.commit()
         job = conn.execute("""SELECT j.*,d.stored_path,d.file_type FROM import_jobs j JOIN source_documents d
           ON d.id=j.source_document_id WHERE j.id=?""", (job_id,)).fetchone()
+        if job["file_type"] == "zip":
+            _parse_share_package(conn, data_dir, job)
+            return
         records, anomalies = parse_document(data_dir / job["stored_path"], job["file_type"])
         existing = []
         for row in conn.execute("""SELECT q.id,q.stem,q.options_json FROM questions q JOIN knowledge_points kp ON kp.id=q.knowledge_point_id
@@ -315,17 +341,201 @@ def parse_job(db_path: Path, data_dir: Path, job_id: str) -> None:
         conn.close()
 
 
-def ensure_target_point(conn: sqlite3.Connection, subject_id: int, chapter_name: str = "", point_name: str = "") -> int:
+def _parse_share_package(conn: sqlite3.Connection, data_dir: Path, job) -> None:
+    mapping = json.loads(job["mapping_json"] or "{}")
+    subject_mapping = mapping.get("subjects", {})
+    if not job["project_id"] or not subject_mapping:
+        raise ValueError("请先确认项目和科目映射")
+    staging = data_dir / "imports" / "staging" / job["id"]
+    if staging.exists():
+        shutil.rmtree(staging)
+    manifest, records = inspect_share_package(data_dir / job["stored_path"], staging)
+    subject_meta = {item["key"]: item for item in manifest["subjects"]}
+    chapter_meta = {item["key"]: item for subject in manifest["subjects"] for item in subject["chapters"]}
+    point_meta = {item["key"]: item for subject in manifest["subjects"] for chapter in subject["chapters"] for item in chapter["points"]}
+
+    existing_cache: dict[int, list[tuple[int, str, str]]] = {}
+    for value in subject_mapping.values():
+        subject_id = value.get("target_subject_id") if isinstance(value, dict) else None
+        if not subject_id or subject_id in existing_cache:
+            continue
+        rows = []
+        for row in conn.execute("""SELECT q.id,q.stem,q.options_json FROM questions q
+          JOIN knowledge_points kp ON kp.id=q.knowledge_point_id JOIN chapters c ON c.id=kp.chapter_id
+          WHERE c.subject_id=?""", (subject_id,)):
+            options = json.loads(row["options_json"])
+            rows.append((row["id"], normalize_text(row["stem"]), fingerprint(row["stem"], options)))
+        existing_cache[subject_id] = rows
+
+    duplicate_count = valid_count = 0
+    preview = []
+    for index, record in enumerate(records, 1):
+        subject = subject_meta[record["subject_key"]]
+        chapter = chapter_meta[record["chapter_key"]]
+        point = point_meta[record["point_key"]]
+        mapped = subject_mapping.get(record["subject_key"], {})
+        subject_id = mapped.get("target_subject_id") if isinstance(mapped, dict) else None
+        fp = fingerprint(record["stem"], record.get("options", []))
+        duplicate_id = None
+        existing = existing_cache.get(subject_id, [])
+        if existing:
+            duplicate_id = next((qid for qid, _, old_fp in existing if old_fp == fp), None)
+            if duplicate_id is None:
+                normalized = normalize_text(record["stem"])
+                duplicate_id = next((qid for qid, old_stem, _ in existing
+                                     if len(normalized) >= 20 and SequenceMatcher(None, normalized, old_stem).ratio() >= .94), None)
+        error = _validate(record)
+        valid_count += int(not error)
+        duplicate_count += int(duplicate_id is not None)
+        conn.execute("""INSERT INTO import_candidates(job_id,item_index,source_item_key,question_type,stem,
+          options_json,answer_json,explanation,chapter_name,point_name,fingerprint,duplicate_question_id,
+          validation_error,decision,subject_key,subject_name,subject_code,chapter_key,chapter_is_core,
+          point_key,difficulty,sender_status,image_ref,image_missing)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+          (job["id"], index, record["item_key"], record["type"], record["stem"],
+           json.dumps(record["options"], ensure_ascii=False), json.dumps(record["answer"], ensure_ascii=False),
+           record["explanation"], chapter["name"], point["name"], fp, duplicate_id, error,
+           "skip" if duplicate_id else "insert", subject["key"], subject["name"], subject.get("code", ""),
+           chapter["key"], int(bool(chapter.get("is_core"))), point["key"], record["difficulty"],
+           record["status"], record.get("image_ref", ""), int(bool(record.get("image_missing")))))
+        if len(preview) < 20:
+            preview.append({"index": index, "type": record["type"], "stem": record["stem"][:160],
+                            "error": error, "duplicate": duplicate_id, "image_missing": record.get("image_missing", False)})
+    status = "blocked" if any(item["validation_error"] for item in conn.execute(
+        "SELECT validation_error FROM import_candidates WHERE job_id=?", (job["id"],)
+    )) or not records else "ready"
+    warnings = list(manifest.get("warnings", []))
+    message = "存在必填错误，整批暂不可提交" if status == "blocked" else "分享包解析完成，请处理重复项后提交"
+    conn.execute("""UPDATE import_jobs SET status=?,stage='review',progress=90,message=?,parser_version=?,
+      error_json=?,preview_json=?,candidate_count=?,valid_count=?,duplicate_count=?,updated_at=? WHERE id=?""",
+      (status, message, f"share-package-{PACKAGE_VERSION}", json.dumps(warnings, ensure_ascii=False),
+       json.dumps(preview, ensure_ascii=False), len(records), valid_count, duplicate_count, now_iso(), job["id"]))
+    conn.commit()
+
+
+def ensure_target_point(
+    conn: sqlite3.Connection,
+    subject_id: int,
+    chapter_name: str = "",
+    point_name: str = "",
+    is_core: bool = False,
+) -> int:
     chapter_name = chapter_name.strip() or "待分类"
     point_name = point_name.strip() or "待分类"
-    chapter = conn.execute("SELECT id FROM chapters WHERE subject_id=? AND name=?", (subject_id, chapter_name)).fetchone()
+    chapter = next((row for row in conn.execute("SELECT id,name,is_core FROM chapters WHERE subject_id=?", (subject_id,))
+                    if normalize_text(row["name"]) == normalize_text(chapter_name)), None)
     chapter_id = chapter["id"] if chapter else conn.execute(
-        "INSERT INTO chapters(subject_id,name,is_core) VALUES (?,?,0)", (subject_id, chapter_name)
+        "INSERT INTO chapters(subject_id,name,is_core) VALUES (?,?,?)", (subject_id, chapter_name, int(is_core))
     ).lastrowid
-    point = conn.execute("SELECT id FROM knowledge_points WHERE chapter_id=? AND name=?", (chapter_id, point_name)).fetchone()
+    if chapter and is_core and not chapter["is_core"]:
+        conn.execute("UPDATE chapters SET is_core=1 WHERE id=?", (chapter_id,))
+    point = next((row for row in conn.execute("SELECT id,name FROM knowledge_points WHERE chapter_id=?", (chapter_id,))
+                  if normalize_text(row["name"]) == normalize_text(point_name)), None)
     return int(point["id"] if point else conn.execute(
         "INSERT INTO knowledge_points(chapter_id,name) VALUES (?,?)", (chapter_id, point_name)
     ).lastrowid)
+
+
+def _commit_share_package(
+    conn: sqlite3.Connection,
+    job,
+    candidates,
+    decisions: dict[int, str],
+    duplicate_action: str,
+    status_strategy: str,
+    data_dir: Path,
+) -> dict:
+    mapping = json.loads(job["mapping_json"] or "{}").get("subjects", {})
+    if not mapping:
+        raise ValueError("分享包尚未完成科目映射")
+    subject_meta: dict[str, tuple[str, str]] = {}
+    for candidate in candidates:
+        subject_meta.setdefault(candidate["subject_key"], (candidate["subject_name"], candidate["subject_code"]))
+    subject_ids: dict[str, int] = {}
+    used_targets: set[int] = set()
+    for key, (name, code) in subject_meta.items():
+        item = mapping.get(key, {})
+        target_id = item.get("target_subject_id") if isinstance(item, dict) else None
+        if target_id:
+            row = conn.execute("SELECT id FROM subjects WHERE id=? AND project_id=?", (target_id, job["project_id"])).fetchone()
+            if not row:
+                raise ValueError(f"科目“{name}”的映射目标无效")
+            if target_id in used_targets:
+                raise ValueError("不同来源科目不能映射到同一个目标科目")
+            subject_ids[key] = int(target_id)
+            used_targets.add(int(target_id))
+        else:
+            if code and conn.execute("SELECT 1 FROM subjects WHERE project_id=? AND code=?", (job["project_id"], code)).fetchone():
+                raise ValueError(f"科目代码“{code}”已存在，请重新选择映射")
+            subject_ids[key] = int(conn.execute(
+                "INSERT INTO subjects(project_id,name,code) VALUES (?,?,?)", (job["project_id"], name, code)
+            ).lastrowid)
+
+    inserted = skipped = updated = 0
+    now = now_iso()
+    staging = data_dir / "imports" / "staging" / job["id"]
+    uploads = data_dir / "uploads"
+    uploads.mkdir(parents=True, exist_ok=True)
+    preserve = status_strategy == "preserve"
+    created_images: list[Path] = []
+    try:
+        for candidate in candidates:
+            decision = decisions.get(candidate["id"], duplicate_action if candidate["duplicate_question_id"] else "insert")
+            if decision not in {"skip", "update", "copy", "insert"}:
+                decision = "skip" if candidate["duplicate_question_id"] else "insert"
+            if candidate["duplicate_question_id"] and decision == "skip":
+                skipped += 1
+                continue
+            subject_id = subject_ids[candidate["subject_key"]]
+            point_id = ensure_target_point(conn, subject_id, candidate["chapter_name"], candidate["point_name"], bool(candidate["chapter_is_core"]))
+            image_path = None
+            if candidate["image_ref"] and not candidate["image_missing"]:
+                staged = staging / PurePath(candidate["image_ref"])
+                if not staged.is_file():
+                    raise ValueError(f"题目 #{candidate['item_index']} 的图片暂存文件缺失")
+                digest = Path(candidate["image_ref"]).stem
+                image_path = f"share_{digest}{staged.suffix.lower()}"
+                final_image = uploads / image_path
+                if not final_image.exists():
+                    shutil.copy2(staged, final_image)
+                    created_images.append(final_image)
+            status = candidate["sender_status"] if preserve and candidate["sender_status"] in {"verified", "draft"} else "draft"
+            common_values = (
+                point_id, candidate["question_type"], candidate["stem"], candidate["options_json"],
+                candidate["answer_json"], candidate["explanation"], candidate["difficulty"], "", "",
+                image_path, status, job["source_document_id"], None, "", job["id"],
+                job["parser_version"] or f"share-package-{PACKAGE_VERSION}",
+            )
+            if candidate["duplicate_question_id"] and decision == "update":
+                conn.execute("""UPDATE questions SET knowledge_point_id=?,type=?,stem=?,options_json=?,answer_json=?,
+                  explanation=?,difficulty=?,source=?,version_note=?,image_path=COALESCE(?,image_path),status=?,source_document_id=?,
+                  source_page=?,source_item_key=?,import_batch_id=?,parser_version=?,updated_at=? WHERE id=?""",
+                  common_values + (now, candidate["duplicate_question_id"]))
+                updated += 1
+            else:
+                conn.execute("""INSERT INTO questions(knowledge_point_id,type,stem,options_json,answer_json,explanation,
+                  difficulty,source,version_note,image_path,status,source_document_id,source_page,source_item_key,
+                  import_batch_id,parser_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  common_values + (now, now))
+                inserted += 1
+    except Exception:
+        for image in created_images:
+            image.unlink(missing_ok=True)
+        raise
+    written = inserted + updated
+    mode = "保留发送方状态" if preserve else "全部转为草稿"
+    message = f"已写入 {written} 道题，跳过 {skipped} 道重复题；{mode}"
+    conn.execute("""UPDATE import_jobs SET status='committed',stage='complete',progress=100,message=?,
+      committed_count=?,completed_at=?,updated_at=? WHERE id=?""", (message, written, now, now, job["id"]))
+    try:
+        conn.commit()
+    except Exception:
+        for image in created_images:
+            image.unlink(missing_ok=True)
+        raise
+    if staging.exists():
+        shutil.rmtree(staging, ignore_errors=True)
+    return {"inserted": inserted, "updated": updated, "skipped": skipped, "written": written, "message": message}
 
 
 def commit_job(
@@ -333,6 +543,8 @@ def commit_job(
     job_id: str,
     decisions: dict[int, str] | None = None,
     duplicate_action: str = "skip",
+    status_strategy: str = "draft",
+    data_dir: Path | None = None,
 ) -> dict:
     """Atomically commit one validated import batch. Used by both web and CLI entry points."""
     decisions = decisions or {}
@@ -340,7 +552,7 @@ def commit_job(
         duplicate_action = "skip"
     job = conn.execute("""SELECT j.*,d.original_name FROM import_jobs j JOIN source_documents d
       ON d.id=j.source_document_id WHERE j.id=?""", (job_id,)).fetchone()
-    if not job or job["status"] != "ready" or not job["subject_id"]:
+    if not job or job["status"] != "ready" or (job["import_kind"] != "package" and not job["subject_id"]):
         raise ValueError("该导入任务尚未准备好")
     invalid = conn.execute(
         "SELECT COUNT(*) n FROM import_candidates WHERE job_id=? AND validation_error<>''", (job_id,)
@@ -350,6 +562,22 @@ def commit_job(
     candidates = conn.execute("SELECT * FROM import_candidates WHERE job_id=? ORDER BY item_index", (job_id,)).fetchall()
     if not candidates:
         raise ValueError("导入任务没有可提交题目")
+    if job["import_kind"] == "package":
+        if data_dir is None:
+            raise ValueError("分享包导入缺少数据目录")
+        try:
+            return _commit_share_package(conn, job, candidates, decisions, duplicate_action, status_strategy, data_dir)
+        except Exception:
+            conn.rollback()
+            uploads = data_dir / "uploads"
+            for candidate in candidates:
+                if not candidate["image_ref"]:
+                    continue
+                ref = PurePath(candidate["image_ref"])
+                filename = f"share_{ref.stem}{ref.suffix.lower()}"
+                if not conn.execute("SELECT 1 FROM questions WHERE image_path=? LIMIT 1", (filename,)).fetchone():
+                    (uploads / filename).unlink(missing_ok=True)
+            raise
     inserted = skipped = updated = 0
     now = now_iso()
     for candidate in candidates:

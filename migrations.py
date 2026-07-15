@@ -5,7 +5,7 @@ import sqlite3
 from datetime import date, datetime
 
 
-LATEST_SCHEMA_VERSION = 1
+LATEST_SCHEMA_VERSION = 2
 
 PROJECT_MODULE_DEFAULTS = {
     "practice": {"mock": 0, "plan": 0, "tasks": 0, "readiness": 0},
@@ -122,6 +122,16 @@ CREATE TABLE IF NOT EXISTS import_candidates (
   duplicate_question_id INTEGER REFERENCES questions(id),
   validation_error TEXT NOT NULL DEFAULT '',
   decision TEXT NOT NULL DEFAULT 'insert',
+  subject_key TEXT NOT NULL DEFAULT '',
+  subject_name TEXT NOT NULL DEFAULT '',
+  subject_code TEXT NOT NULL DEFAULT '',
+  chapter_key TEXT NOT NULL DEFAULT '',
+  chapter_is_core INTEGER NOT NULL DEFAULT 0,
+  point_key TEXT NOT NULL DEFAULT '',
+  difficulty INTEGER NOT NULL DEFAULT 2,
+  sender_status TEXT NOT NULL DEFAULT 'draft',
+  image_ref TEXT NOT NULL DEFAULT '',
+  image_missing INTEGER NOT NULL DEFAULT 0,
   UNIQUE(job_id,item_index)
 );
 CREATE TABLE IF NOT EXISTS questions (
@@ -216,6 +226,30 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS export_jobs (
+  id TEXT PRIMARY KEY,
+  project_id INTEGER NOT NULL REFERENCES learning_projects(id),
+  scope_type TEXT NOT NULL,
+  scope_id INTEGER,
+  include_drafts INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL,
+  stage TEXT NOT NULL,
+  progress INTEGER NOT NULL DEFAULT 0,
+  message TEXT NOT NULL DEFAULT '',
+  question_count INTEGER NOT NULL DEFAULT 0,
+  image_count INTEGER NOT NULL DEFAULT 0,
+  missing_image_count INTEGER NOT NULL DEFAULT 0,
+  warning_json TEXT NOT NULL DEFAULT '[]',
+  error_json TEXT NOT NULL DEFAULT '[]',
+  stored_path TEXT,
+  filename TEXT,
+  size_bytes INTEGER NOT NULL DEFAULT 0,
+  sha256 TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT,
+  expires_at TEXT
+);
 CREATE INDEX IF NOT EXISTS ix_subjects_project ON subjects(project_id);
 CREATE INDEX IF NOT EXISTS ix_questions_status ON questions(status);
 CREATE INDEX IF NOT EXISTS ix_questions_import_batch ON questions(import_batch_id);
@@ -224,6 +258,7 @@ CREATE INDEX IF NOT EXISTS ix_practice_sessions_project ON practice_sessions(pro
 CREATE INDEX IF NOT EXISTS ix_mock_exams_project ON mock_exams(project_id,submitted_at);
 CREATE INDEX IF NOT EXISTS ix_import_jobs_project ON import_jobs(project_id,created_at);
 CREATE INDEX IF NOT EXISTS ix_import_candidates_job ON import_candidates(job_id,item_index);
+CREATE INDEX IF NOT EXISTS ix_export_jobs_project ON export_jobs(project_id,created_at);
 """
 
 
@@ -409,6 +444,54 @@ def _migrate_legacy(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_subject_project_code ON subjects(project_id,code) WHERE code<>''")
 
 
+def _migrate_v2(conn: sqlite3.Connection) -> None:
+    for definition in (
+        "import_kind TEXT NOT NULL DEFAULT 'document'",
+        "package_json TEXT NOT NULL DEFAULT '{}'",
+        "mapping_json TEXT NOT NULL DEFAULT '{}'",
+    ):
+        _add_column(conn, "import_jobs", definition)
+    for definition in (
+        "subject_key TEXT NOT NULL DEFAULT ''",
+        "subject_name TEXT NOT NULL DEFAULT ''",
+        "subject_code TEXT NOT NULL DEFAULT ''",
+        "chapter_key TEXT NOT NULL DEFAULT ''",
+        "chapter_is_core INTEGER NOT NULL DEFAULT 0",
+        "point_key TEXT NOT NULL DEFAULT ''",
+        "difficulty INTEGER NOT NULL DEFAULT 2",
+        "sender_status TEXT NOT NULL DEFAULT 'draft'",
+        "image_ref TEXT NOT NULL DEFAULT ''",
+        "image_missing INTEGER NOT NULL DEFAULT 0",
+    ):
+        _add_column(conn, "import_candidates", definition)
+    conn.executescript("""
+      CREATE TABLE IF NOT EXISTS export_jobs (
+        id TEXT PRIMARY KEY,
+        project_id INTEGER NOT NULL REFERENCES learning_projects(id),
+        scope_type TEXT NOT NULL,
+        scope_id INTEGER,
+        include_drafts INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL,
+        stage TEXT NOT NULL,
+        progress INTEGER NOT NULL DEFAULT 0,
+        message TEXT NOT NULL DEFAULT '',
+        question_count INTEGER NOT NULL DEFAULT 0,
+        image_count INTEGER NOT NULL DEFAULT 0,
+        missing_image_count INTEGER NOT NULL DEFAULT 0,
+        warning_json TEXT NOT NULL DEFAULT '[]',
+        error_json TEXT NOT NULL DEFAULT '[]',
+        stored_path TEXT,
+        filename TEXT,
+        size_bytes INTEGER NOT NULL DEFAULT 0,
+        sha256 TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT,
+        expires_at TEXT);
+      CREATE INDEX IF NOT EXISTS ix_export_jobs_project ON export_jobs(project_id,created_at);
+    """)
+
+
 def migrate_database(conn: sqlite3.Connection) -> int:
     """Upgrade an empty or legacy database in-place and return its schema version."""
     conn.execute("PRAGMA foreign_keys=OFF")
@@ -419,6 +502,8 @@ def migrate_database(conn: sqlite3.Connection) -> int:
         _migrate_legacy(conn)
     else:
         conn.executescript(LATEST_SCHEMA)
+
+    _migrate_v2(conn)
 
     conn.execute(
         "INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (?,?)",

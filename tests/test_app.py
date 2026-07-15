@@ -35,6 +35,7 @@ class StudyAppTests(unittest.TestCase):
             conn.execute("DELETE FROM questions")
             conn.execute("DELETE FROM labs")
             conn.execute("DELETE FROM import_jobs")
+            conn.execute("DELETE FROM export_jobs")
             conn.execute("DELETE FROM source_documents")
             conn.execute("DELETE FROM knowledge_points")
             conn.execute("DELETE FROM chapters")
@@ -54,6 +55,32 @@ class StudyAppTests(unittest.TestCase):
                     return row
             time.sleep(0.05)
         self.fail(f"job {job_id} did not reach {statuses}")
+
+    def wait_for_export(self, job_id, statuses, timeout=8):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with self.mod.db() as conn:
+                row = conn.execute("SELECT * FROM export_jobs WHERE id=?", (job_id,)).fetchone()
+                if row and row["status"] in statuses:
+                    return row
+            time.sleep(0.05)
+        self.fail(f"export {job_id} did not reach {statuses}")
+
+    def create_export(self, scope_type="project", scope_id=None, include_drafts=False):
+        with self.mod.db() as conn:
+            before = {row["id"] for row in conn.execute("SELECT id FROM export_jobs")}
+        data = {"scope_type": scope_type}
+        if scope_id is not None:
+            data["scope_id"] = str(scope_id)
+        if include_drafts:
+            data["include_drafts"] = "on"
+        response = self.client.post("/exports", data=data)
+        self.assertEqual(response.status_code, 302)
+        with self.mod.db() as conn:
+            created = [row["id"] for row in conn.execute("SELECT id FROM export_jobs") if row["id"] not in before]
+            self.assertEqual(len(created), 1)
+            job_id = created[0]
+        return job_id, self.wait_for_export(job_id, {"completed", "failed"})
 
     def upload_csv_job(self, stem="通用导入测试题"):
         csv_data = f"题型,题干,选项A,选项B,选项C,选项D,选项E,选项F,选项G,选项H,答案,解析,章节,知识点,原题号\n单选,{stem},正确项,错误项,,,,,,,A,测试解析,导入章节,导入知识点,CSV-1\n"
@@ -91,7 +118,7 @@ class StudyAppTests(unittest.TestCase):
 
     def test_all_main_pages_render(self):
         self.add_question()
-        paths = ["/", "/progress", "/knowledge", "/questions", "/questions/new", "/practice", "/review", "/labs", "/labs/new", "/plans", "/mock", "/settings"]
+        paths = ["/", "/progress", "/knowledge", "/questions", "/questions/new", "/practice", "/review", "/labs", "/labs/new", "/plans", "/mock", "/imports", "/settings"]
         for path in paths:
             response = self.client.get(path)
             self.assertEqual(response.status_code, 200, path)
@@ -571,6 +598,130 @@ class StudyAppTests(unittest.TestCase):
         self.client.post(f"/imports/{job_id}/commit", data={"duplicate_action": "skip"})
         with self.mod.db() as conn:
             self.assertEqual(conn.execute("SELECT COUNT(*) n FROM questions").fetchone()["n"], 0)
+
+    def test_export_scope_status_filters_and_count_api(self):
+        self.add_question(status="verified")
+        self.add_question(qtype="multiple", status="draft")
+        self.add_question(qtype="short", status="archived")
+        with self.mod.db() as conn:
+            subject_id = conn.execute("SELECT id FROM subjects WHERE project_id=?", (self.project_id,)).fetchone()["id"]
+            chapter_id = conn.execute("SELECT id FROM chapters WHERE subject_id=?", (subject_id,)).fetchone()["id"]
+        self.assertEqual(self.client.get("/api/exports/count?scope_type=project").get_json()["count"], 1)
+        self.assertEqual(self.client.get("/api/exports/count?scope_type=project&include_drafts=1").get_json()["count"], 2)
+        self.assertEqual(self.client.get(f"/api/exports/count?scope_type=subject&scope_id={subject_id}&include_drafts=1").get_json()["count"], 2)
+        self.assertEqual(self.client.get(f"/api/exports/count?scope_type=chapter&scope_id={chapter_id}&include_drafts=1").get_json()["count"], 2)
+        job_id, job = self.create_export("chapter", chapter_id, include_drafts=True)
+        self.assertEqual(job["status"], "completed", job["message"])
+        self.assertEqual(job["question_count"], 2)
+        download = self.client.get(f"/exports/{job_id}/download")
+        self.assertEqual(download.status_code, 200)
+        self.assertEqual(download.mimetype, "application/zip")
+        download.close()
+
+    def test_failed_export_can_retry_then_delete_without_touching_questions(self):
+        self.add_question(status="verified")
+        original_limit = self.mod.export_queue.max_bytes
+        try:
+            self.mod.export_queue.max_bytes = 1
+            job_id, job = self.create_export()
+            self.assertEqual(job["status"], "failed")
+            self.assertIn("上限", job["message"])
+            self.mod.export_queue.max_bytes = original_limit
+            self.client.post(f"/exports/{job_id}/retry")
+            completed = self.wait_for_export(job_id, {"completed", "failed"})
+            self.assertEqual(completed["status"], "completed", completed["message"])
+            package_path = Path(self.temp.name) / completed["stored_path"]
+            self.assertTrue(package_path.is_file())
+            self.client.post(f"/exports/{job_id}/delete")
+            self.assertFalse(package_path.exists())
+            with self.mod.db() as conn:
+                self.assertIsNone(conn.execute("SELECT 1 FROM export_jobs WHERE id=?", (job_id,)).fetchone())
+                self.assertEqual(conn.execute("SELECT COUNT(*) n FROM questions").fetchone()["n"], 1)
+        finally:
+            self.mod.export_queue.max_bytes = original_limit
+
+    def test_share_package_round_trip_preserves_content_but_not_personal_data(self):
+        ids = [self.add_question(qtype=qtype, status="draft" if qtype == "short" else "verified")
+               for qtype in ("single", "multiple", "true_false", "fill", "short")]
+        self.add_question(qtype="single", status="archived")
+        image_name = "roundtrip.png"
+        (Path(self.temp.name) / "uploads").mkdir(exist_ok=True)
+        (Path(self.temp.name) / "uploads" / image_name).write_bytes(b"test-image-content")
+        with self.mod.db() as conn:
+            conn.execute("UPDATE questions SET image_path=? WHERE id=?", (image_name, ids[0]))
+            conn.execute("INSERT INTO question_progress(question_id,mastery_level,attempts,correct_attempts,error_count) VALUES (?,?,?,?,?)",
+                         (ids[0], 3, 5, 4, 1))
+            conn.execute("INSERT INTO attempts(question_id,mode,is_correct,answered_at) VALUES (?,?,?,?)",
+                         (ids[0], "practice", 1, self.mod.now_iso()))
+        export_id, export_job = self.create_export(include_drafts=True)
+        self.assertEqual(export_job["status"], "completed", export_job["message"])
+        package_path = Path(self.temp.name) / export_job["stored_path"]
+        from transfer_service import inspect_share_package
+        manifest, records = inspect_share_package(package_path)
+        self.assertEqual(len(records), 5)
+        self.assertEqual({item["type"] for item in records}, {"single", "multiple", "true_false", "fill", "short"})
+        self.assertEqual({item["status"] for item in records}, {"verified", "draft"})
+        self.assertNotIn("id", records[0])
+        for forbidden in ("source", "version_note", "source_page", "source_document_id", "import_batch_id", "parser_version"):
+            self.assertNotIn(forbidden, records[0])
+        self.assertEqual(manifest["counts"]["images"], 1)
+
+        response = self.client.post("/imports", data={"file": (io.BytesIO(package_path.read_bytes()), "shared.zip")},
+                                    content_type="multipart/form-data")
+        import_id = response.headers["Location"].rstrip("/").split("/")[-1]
+        self.wait_for_job(import_id, {"waiting_target", "failed"})
+        self.assertEqual(self.client.get(f"/imports/{import_id}").status_code, 200)
+        self.client.post(f"/imports/{import_id}/target", data={"new_project_name": "接收项目"})
+        mapped = self.wait_for_job(import_id, {"waiting_mapping", "failed"})
+        self.assertEqual(mapped["status"], "waiting_mapping", mapped["message"])
+        self.assertEqual(self.client.get(f"/imports/{import_id}").status_code, 200)
+        detected = json.loads(mapped["detected_json"])
+        mapping_data = {f"map_{source['key']}": "new" for source in detected["package"]["subjects"]}
+        self.client.post(f"/imports/{import_id}/mapping", data=mapping_data)
+        ready = self.wait_for_job(import_id, {"ready", "blocked", "failed"})
+        self.assertEqual(ready["status"], "ready", ready["message"])
+        self.assertEqual(self.client.get(f"/imports/{import_id}").status_code, 200)
+        self.client.post(f"/imports/{import_id}/commit", data={"duplicate_action": "skip", "status_strategy": "preserve"})
+        with self.mod.db() as conn:
+            target_project = conn.execute("SELECT id FROM learning_projects WHERE name='接收项目'").fetchone()["id"]
+            imported = conn.execute("""SELECT q.* FROM questions q JOIN knowledge_points kp ON kp.id=q.knowledge_point_id
+              JOIN chapters c ON c.id=kp.chapter_id JOIN subjects s ON s.id=c.subject_id
+              WHERE s.project_id=? ORDER BY q.id""", (target_project,)).fetchall()
+            self.assertEqual(len(imported), 5)
+            self.assertEqual({row["type"] for row in imported}, {"single", "multiple", "true_false", "fill", "short"})
+            self.assertEqual({row["status"] for row in imported}, {"verified", "draft"})
+            self.assertTrue(all(row["source"] == "" and row["version_note"] == "" for row in imported))
+            self.assertEqual(conn.execute("""SELECT COUNT(*) n FROM question_progress qp JOIN questions q ON q.id=qp.question_id
+              JOIN knowledge_points kp ON kp.id=q.knowledge_point_id JOIN chapters c ON c.id=kp.chapter_id
+              JOIN subjects s ON s.id=c.subject_id WHERE s.project_id=?""", (target_project,)).fetchone()["n"], 0)
+            imported_image = next(row["image_path"] for row in imported if row["image_path"])
+        self.assertTrue((Path(self.temp.name) / "uploads" / imported_image).is_file())
+
+    def test_package_duplicate_update_preserves_receiver_id_and_progress(self):
+        question_id = self.add_question(status="verified")
+        with self.mod.db() as conn:
+            conn.execute("INSERT INTO question_progress(question_id,mastery_level,attempts,correct_attempts,error_count) VALUES (?,?,?,?,?)",
+                         (question_id, 4, 8, 7, 1))
+            subject_id = conn.execute("SELECT id FROM subjects WHERE project_id=?", (self.project_id,)).fetchone()["id"]
+        _, export_job = self.create_export()
+        package_path = Path(self.temp.name) / export_job["stored_path"]
+        response = self.client.post("/imports", data={"file": (io.BytesIO(package_path.read_bytes()), "duplicate.zip")},
+                                    content_type="multipart/form-data")
+        import_id = response.headers["Location"].rstrip("/").split("/")[-1]
+        self.wait_for_job(import_id, {"waiting_target"})
+        self.client.post(f"/imports/{import_id}/target", data={"project_id": self.project_id})
+        mapped = self.wait_for_job(import_id, {"waiting_mapping"})
+        source_key = json.loads(mapped["detected_json"])["package"]["subjects"][0]["key"]
+        self.client.post(f"/imports/{import_id}/mapping", data={f"map_{source_key}": str(subject_id)})
+        ready = self.wait_for_job(import_id, {"ready", "failed"})
+        self.assertEqual(ready["duplicate_count"], 1)
+        self.client.post(f"/imports/{import_id}/commit", data={"duplicate_action": "update", "status_strategy": "draft"})
+        with self.mod.db() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) n FROM questions").fetchone()["n"], 1)
+            self.assertEqual(conn.execute("SELECT id FROM questions").fetchone()["id"], question_id)
+            progress = conn.execute("SELECT mastery_level,attempts FROM question_progress WHERE question_id=?", (question_id,)).fetchone()
+            self.assertEqual((progress["mastery_level"], progress["attempts"]), (4, 8))
+            self.assertEqual(conn.execute("SELECT status FROM questions WHERE id=?", (question_id,)).fetchone()["status"], "draft")
 
     def test_disabled_optional_module_has_clear_direct_access_page(self):
         with self.mod.db() as conn:
