@@ -12,6 +12,7 @@ from datetime import datetime
 from difflib import SequenceMatcher
 from pathlib import Path, PurePath
 
+from app_runtime import connect_database
 from transfer_service import PACKAGE_VERSION, inspect_share_package
 
 
@@ -229,10 +230,7 @@ def probe_document(path: Path, file_type: str) -> str:
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path, timeout=30)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    return connect_database(db_path)
 
 
 def detect_job(db_path: Path, data_dir: Path, job_id: str) -> None:
@@ -616,10 +614,10 @@ def commit_job(
 
 
 class ImportQueue:
-    def __init__(self, db_path: Path, data_dir: Path):
+    def __init__(self, db_path: Path, data_dir: Path, executor=None):
         self.db_path = db_path
         self.data_dir = data_dir
-        self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="study-import")
+        self.executor = executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix="study-import")
         self.lock = threading.Lock()
 
     def recover(self) -> None:

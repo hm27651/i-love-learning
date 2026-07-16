@@ -5,7 +5,7 @@ import sqlite3
 from datetime import date, datetime
 
 
-LATEST_SCHEMA_VERSION = 2
+LATEST_SCHEMA_VERSION = 4
 
 PROJECT_MODULE_DEFAULTS = {
     "practice": {"mock": 0, "plan": 0, "tasks": 0, "readiness": 0},
@@ -180,7 +180,13 @@ CREATE TABLE IF NOT EXISTS practice_sessions (
   question_ids_json TEXT NOT NULL,
   current_index INTEGER NOT NULL DEFAULT 0,
   started_at TEXT NOT NULL,
-  completed_at TEXT
+  completed_at TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  state_json TEXT NOT NULL DEFAULT '{}',
+  paused_at TEXT,
+  terminated_at TEXT,
+  control_token TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS labs (
   id INTEGER PRIMARY KEY,
@@ -220,7 +226,14 @@ CREATE TABLE IF NOT EXISTS mock_exams (
   objective_count INTEGER NOT NULL,
   time_limit INTEGER NOT NULL,
   qualifying INTEGER NOT NULL DEFAULT 0,
-  chapter_ids_json TEXT NOT NULL DEFAULT '[]'
+  chapter_ids_json TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'active',
+  remaining_seconds INTEGER NOT NULL DEFAULT 0,
+  active_started_at TEXT,
+  paused_at TEXT,
+  terminated_at TEXT,
+  control_token TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
@@ -492,6 +505,86 @@ def _migrate_v2(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _migrate_v3(conn: sqlite3.Connection) -> None:
+    already_applied = conn.execute(
+        "SELECT 1 FROM schema_migrations WHERE version=3"
+    ).fetchone() is not None
+    for definition in (
+        "status TEXT NOT NULL DEFAULT 'active'",
+        "state_json TEXT NOT NULL DEFAULT '{}'",
+        "paused_at TEXT",
+        "terminated_at TEXT",
+        "control_token TEXT NOT NULL DEFAULT ''",
+        "updated_at TEXT NOT NULL DEFAULT ''",
+    ):
+        _add_column(conn, "practice_sessions", definition)
+    for definition in (
+        "status TEXT NOT NULL DEFAULT 'active'",
+        "remaining_seconds INTEGER NOT NULL DEFAULT 0",
+        "active_started_at TEXT",
+        "paused_at TEXT",
+        "terminated_at TEXT",
+        "control_token TEXT NOT NULL DEFAULT ''",
+        "updated_at TEXT NOT NULL DEFAULT ''",
+    ):
+        _add_column(conn, "mock_exams", definition)
+
+    if not already_applied:
+        now = _now()
+        conn.execute("""UPDATE practice_sessions SET status='completed',updated_at=COALESCE(completed_at,started_at,?)
+          WHERE completed_at IS NOT NULL""", (now,))
+        groups = conn.execute("""SELECT DISTINCT project_id,mode FROM practice_sessions
+          WHERE completed_at IS NULL ORDER BY project_id,mode""").fetchall()
+        for project_id, mode in groups:
+            rows = conn.execute("""SELECT id FROM practice_sessions WHERE project_id=? AND mode=?
+              AND completed_at IS NULL ORDER BY started_at DESC,id DESC""", (project_id, mode)).fetchall()
+            for index, row in enumerate(rows):
+                if index == 0:
+                    conn.execute("""UPDATE practice_sessions SET status='paused',paused_at=?,updated_at=?,
+                      state_json=COALESCE(NULLIF(state_json,''),'{}'),control_token='' WHERE id=?""",
+                      (now, now, row[0]))
+                else:
+                    conn.execute("""UPDATE practice_sessions SET status='terminated',terminated_at=?,updated_at=?,
+                      control_token='' WHERE id=?""", (now, now, row[0]))
+
+        conn.execute("""UPDATE mock_exams SET status='submitted',remaining_seconds=0,
+          updated_at=COALESCE(submitted_at,started_at,?) WHERE submitted_at IS NOT NULL""", (now,))
+        project_rows = conn.execute("""SELECT DISTINCT project_id FROM mock_exams
+          WHERE submitted_at IS NULL ORDER BY project_id""").fetchall()
+        for (project_id,) in project_rows:
+            rows = conn.execute("""SELECT id,time_limit FROM mock_exams WHERE project_id=? AND submitted_at IS NULL
+              ORDER BY started_at DESC,id DESC""", (project_id,)).fetchall()
+            for index, row in enumerate(rows):
+                if index == 0:
+                    conn.execute("""UPDATE mock_exams SET status='paused',remaining_seconds=?,paused_at=?,
+                      active_started_at=NULL,updated_at=?,control_token='' WHERE id=?""",
+                      (int(row[1]) * 60, now, now, row[0]))
+                else:
+                    conn.execute("""UPDATE mock_exams SET status='terminated',remaining_seconds=0,
+                      terminated_at=?,active_started_at=NULL,updated_at=?,control_token='',answers_json='{}'
+                      WHERE id=?""", (now, now, row[0]))
+
+    conn.executescript("""
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_practice_active_mode
+        ON practice_sessions(project_id,mode) WHERE status IN ('active','paused');
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_mock_active_project
+        ON mock_exams(project_id) WHERE status IN ('active','paused');
+      CREATE INDEX IF NOT EXISTS ix_practice_status ON practice_sessions(project_id,status,mode);
+      CREATE INDEX IF NOT EXISTS ix_mock_status ON mock_exams(project_id,status);
+    """)
+
+
+def _migrate_v4(conn: sqlite3.Connection) -> None:
+    """Add lightweight indexes for larger multi-project question banks."""
+    conn.executescript("""
+      CREATE INDEX IF NOT EXISTS ix_chapters_subject ON chapters(subject_id);
+      CREATE INDEX IF NOT EXISTS ix_points_chapter ON knowledge_points(chapter_id);
+      CREATE INDEX IF NOT EXISTS ix_questions_point_status ON questions(knowledge_point_id,status);
+      CREATE INDEX IF NOT EXISTS ix_attempts_question_time ON attempts(question_id,answered_at);
+      CREATE INDEX IF NOT EXISTS ix_attempts_session ON attempts(session_id);
+    """)
+
+
 def migrate_database(conn: sqlite3.Connection) -> int:
     """Upgrade an empty or legacy database in-place and return its schema version."""
     conn.execute("PRAGMA foreign_keys=OFF")
@@ -504,6 +597,8 @@ def migrate_database(conn: sqlite3.Connection) -> int:
         conn.executescript(LATEST_SCHEMA)
 
     _migrate_v2(conn)
+    _migrate_v3(conn)
+    _migrate_v4(conn)
 
     conn.execute(
         "INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (?,?)",

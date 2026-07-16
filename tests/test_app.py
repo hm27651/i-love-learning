@@ -5,6 +5,7 @@ import os
 import tempfile
 import time
 import unittest
+import re
 from pathlib import Path
 
 
@@ -27,6 +28,9 @@ class StudyAppTests(unittest.TestCase):
             self.project_id = conn.execute("SELECT id FROM learning_projects ORDER BY id LIMIT 1").fetchone()["id"]
             conn.execute("UPDATE learning_projects SET project_type='practical_certification',practice_alias='HCL实验' WHERE id=?", (self.project_id,))
             conn.execute("UPDATE project_modules SET enabled=1 WHERE project_id=?", (self.project_id,))
+            for key, value in self.mod.PROJECT_SETTING_DEFAULTS.items():
+                conn.execute("""INSERT INTO project_settings(project_id,key,value) VALUES (?,?,?)
+                  ON CONFLICT(project_id,key) DO UPDATE SET value=excluded.value""", (self.project_id, key, value))
             conn.execute("DELETE FROM attempts")
             conn.execute("DELETE FROM question_progress")
             conn.execute("DELETE FROM practice_sessions")
@@ -102,6 +106,10 @@ class StudyAppTests(unittest.TestCase):
                 json.dumps(answers, ensure_ascii=False), "测试解析", 2, status, self.mod.now_iso(), self.mod.now_iso()))
             return cur.lastrowid
 
+    def control_token(self, table, item_id):
+        with self.mod.db() as conn:
+            return conn.execute(f"SELECT control_token FROM {table} WHERE id=?", (item_id,)).fetchone()["control_token"]
+
     def create_tree(self, subject_name, chapter_name=None, point_name=None, *, project_id=None, core=0):
         project_id = project_id or self.project_id
         with self.mod.db() as conn:
@@ -118,10 +126,63 @@ class StudyAppTests(unittest.TestCase):
 
     def test_all_main_pages_render(self):
         self.add_question()
-        paths = ["/", "/progress", "/knowledge", "/questions", "/questions/new", "/practice", "/review", "/labs", "/labs/new", "/plans", "/mock", "/imports", "/settings"]
+        paths = ["/", "/progress", "/knowledge", "/questions", "/questions/new", "/practice", "/review", "/labs", "/labs/new", "/plans", "/mock", "/imports", "/settings", "/data-management", "/health"]
         for path in paths:
             response = self.client.get(path)
             self.assertEqual(response.status_code, 200, path)
+
+    def test_sqlite_runtime_and_background_queue_are_shared(self):
+        with self.mod.db() as conn:
+            self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+            self.assertEqual(conn.execute("PRAGMA busy_timeout").fetchone()[0], 30000)
+        self.assertIs(self.mod.import_queue.executor, self.mod.export_queue.executor)
+
+    def test_health_and_security_headers(self):
+        response = self.client.get("/health")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["database"], "ok")
+        self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(response.headers["X-Frame-Options"], "SAMEORIGIN")
+
+    def test_csrf_is_required_outside_testing_mode(self):
+        self.mod.app.config["TESTING"] = False
+        try:
+            client = self.mod.app.test_client()
+            page = client.get("/settings")
+            token = re.search(rb'<meta name="csrf-token" content="([^"]+)">', page.data).group(1).decode()
+            rejected = client.post("/projects/switch", data={"project_id": self.project_id})
+            self.assertEqual(rejected.status_code, 400)
+            accepted = client.post("/projects/switch", data={"project_id": self.project_id, "_csrf_token": token})
+            self.assertEqual(accepted.status_code, 302)
+        finally:
+            self.mod.app.config["TESTING"] = True
+
+    def test_learning_data_cleanup_rebuilds_progress_and_creates_backup(self):
+        question_id = self.add_question()
+        now = self.mod.now_iso()
+        with self.mod.db() as conn:
+            conn.execute("""INSERT INTO practice_sessions(id,project_id,mode,question_ids_json,current_index,
+              started_at,completed_at,status,updated_at) VALUES ('keep',?,'practice',?,1,?,?,'completed',?)""",
+              (self.project_id, json.dumps([question_id]), now, now, now))
+            question = self.mod.get_question(conn, question_id, self.project_id)
+            self.mod.record_attempt(conn, question, "practice", is_correct=True, session_id="keep")
+            conn.execute("""INSERT INTO practice_sessions(id,project_id,mode,question_ids_json,current_index,
+              started_at,terminated_at,status,updated_at) VALUES ('remove',?,'practice',?,1,?,?,'terminated',?)""",
+              (self.project_id, json.dumps([question_id]), now, now, now))
+            self.mod.record_attempt(conn, question, "practice", is_correct=False, session_id="remove")
+        page = self.client.get("/data-management")
+        self.assertIn(b"remove", page.data)
+        result = self.client.post("/data-management/cleanup", data={
+            "session_key": "practice:remove", "confirmation": "清理所选记录"
+        }, follow_redirects=True)
+        self.assertEqual(result.status_code, 200)
+        with self.mod.db() as conn:
+            self.assertIsNone(conn.execute("SELECT 1 FROM practice_sessions WHERE id='remove'").fetchone())
+            self.assertIsNotNone(conn.execute("SELECT 1 FROM practice_sessions WHERE id='keep'").fetchone())
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM attempts").fetchone()[0], 1)
+            progress = conn.execute("SELECT * FROM question_progress WHERE question_id=?", (question_id,)).fetchone()
+            self.assertEqual((progress["mastery_level"], progress["attempts"], progress["correct_attempts"], progress["error_count"]), (1, 1, 1, 0))
+        self.assertTrue(any(self.mod.BACKUP_DIR.glob("learning_cleanup_*/data/h3cse.db")))
 
     def test_question_creation_supports_multiple_choice(self):
         with self.mod.db() as conn:
@@ -181,12 +242,77 @@ class StudyAppTests(unittest.TestCase):
         response = self.client.post("/practice", data={"count": 1})
         location = response.headers["Location"]
         self.assertEqual(self.client.get(location).status_code, 200)
-        answer = self.client.post(location, data={"answer": "A"})
+        session_id = location.rstrip("/").split("/")[-1]
+        answer = self.client.post(location, data={"answer": "A", "control_token": self.control_token("practice_sessions", session_id)})
         self.assertIn("回答正确".encode("utf-8"), answer.data)
         with self.mod.db() as conn:
             progress = conn.execute("SELECT * FROM question_progress WHERE question_id=?", (qid,)).fetchone()
             self.assertEqual(progress["mastery_level"], 1)
             self.assertEqual(progress["correct_attempts"], 1)
+
+    def test_practice_pause_preserves_unsubmitted_answer_and_can_resume(self):
+        self.add_question("single", ["A"])
+        response = self.client.post("/practice", data={"count": 1})
+        location = response.headers["Location"]
+        session_id = location.rstrip("/").split("/")[-1]
+        self.client.get(location)
+        token = self.control_token("practice_sessions", session_id)
+        paused = self.client.post(f"/practice/{session_id}/pause", json={
+            "control_token": token, "selected": ["A"], "draft": "暂存说明",
+        })
+        self.assertEqual(paused.status_code, 200)
+        with self.mod.db() as conn:
+            item = conn.execute("SELECT * FROM practice_sessions WHERE id=?", (session_id,)).fetchone()
+            self.assertEqual(item["status"], "paused")
+            self.assertEqual(json.loads(item["state_json"])["selected"], ["A"])
+        page = self.client.get(location)
+        self.assertIn("练习已暂停".encode(), page.data)
+        self.assertIn(b'value="A" checked', page.data)
+        resumed = self.client.post(f"/practice/{session_id}/resume", data={
+            "control_token": self.control_token("practice_sessions", session_id),
+        })
+        self.assertEqual(resumed.status_code, 302)
+        with self.mod.db() as conn:
+            self.assertEqual(conn.execute("SELECT status FROM practice_sessions WHERE id=?", (session_id,)).fetchone()["status"], "active")
+
+    def test_practice_pause_on_feedback_restores_feedback_without_duplicate_attempt(self):
+        self.add_question("single", ["A"])
+        location = self.client.post("/practice", data={"count": 1}).headers["Location"]
+        session_id = location.rstrip("/").split("/")[-1]
+        self.client.get(location)
+        token = self.control_token("practice_sessions", session_id)
+        answered = self.client.post(location, data={"answer": "A", "control_token": token})
+        self.assertIn("回答正确".encode(), answered.data)
+        paused = self.client.post(f"/practice/{session_id}/pause", json={"control_token": token})
+        self.assertEqual(paused.status_code, 200)
+        restored = self.client.get(location)
+        self.assertIn("回答正确".encode(), restored.data)
+        self.assertIn("练习已暂停".encode(), restored.data)
+        with self.mod.db() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) n FROM attempts WHERE session_id=?", (session_id,)).fetchone()["n"], 1)
+
+    def test_practice_terminate_keeps_completed_attempts_and_frees_mode(self):
+        self.add_question("single", ["A"])
+        location = self.client.post("/practice", data={"count": 1}).headers["Location"]
+        session_id = location.rstrip("/").split("/")[-1]
+        self.client.get(location)
+        token = self.control_token("practice_sessions", session_id)
+        self.client.post(location, data={"answer": "A", "control_token": token})
+        result = self.client.post(f"/practice/{session_id}/terminate", data={"control_token": token}, follow_redirects=True)
+        self.assertIn("会话已终止".encode(), result.data)
+        with self.mod.db() as conn:
+            self.assertEqual(conn.execute("SELECT status FROM practice_sessions WHERE id=?", (session_id,)).fetchone()["status"], "terminated")
+            self.assertEqual(conn.execute("SELECT COUNT(*) n FROM attempts WHERE session_id=?", (session_id,)).fetchone()["n"], 1)
+        self.assertEqual(self.client.post("/practice", data={"count": 1}).status_code, 302)
+
+    def test_only_one_active_session_per_practice_mode(self):
+        self.add_question("single", ["A"])
+        first = self.client.post("/practice", data={"count": 1})
+        self.assertIn("/practice/", first.headers["Location"])
+        second = self.client.post("/practice", data={"count": 1}, follow_redirects=True)
+        self.assertIn("请先继续或终止旧会话".encode(), second.data)
+        with self.mod.db() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) n FROM practice_sessions WHERE mode='practice' AND status IN ('active','paused')").fetchone()["n"], 1)
 
     def test_practice_match_count_respects_filters_and_status(self):
         self.add_question("single", status="verified")
@@ -451,13 +577,45 @@ class StudyAppTests(unittest.TestCase):
         with self.mod.db() as conn:
             sid = "subjective-test"
             conn.execute("INSERT INTO practice_sessions(id,project_id,mode,question_ids_json,started_at) VALUES (?,?,?,?,?)", (sid, self.project_id, "practice", json.dumps([qid]), self.mod.now_iso()))
-        reveal = self.client.post(f"/practice/{sid}", data={"action": "reveal"})
+        self.client.get(f"/practice/{sid}")
+        reveal = self.client.post(f"/practice/{sid}", data={"action": "reveal", "control_token": self.control_token("practice_sessions", sid)})
         self.assertIn("请对照参考答案自评".encode("utf-8"), reveal.data)
-        rated = self.client.post(f"/practice/{sid}", data={"rating": "fuzzy"})
+        rated = self.client.post(f"/practice/{sid}", data={"rating": "fuzzy", "control_token": self.control_token("practice_sessions", sid)})
         self.assertIn("本题已记录".encode("utf-8"), rated.data)
         with self.mod.db() as conn:
             attempt = conn.execute("SELECT * FROM attempts WHERE question_id=?", (qid,)).fetchone()
             self.assertEqual(attempt["self_rating"], "fuzzy")
+
+    def test_subjective_self_rating_stage_survives_pause(self):
+        qid = self.add_question("short")
+        with self.mod.db() as conn:
+            sid = "subjective-pause"
+            conn.execute("INSERT INTO practice_sessions(id,project_id,mode,question_ids_json,started_at) VALUES (?,?,?,?,?)",
+                         (sid, self.project_id, "practice", json.dumps([qid]), self.mod.now_iso()))
+        location = f"/practice/{sid}"
+        self.client.get(location)
+        token = self.control_token("practice_sessions", sid)
+        self.client.post(location, data={"action": "reveal", "draft": "我的草稿", "control_token": token})
+        paused = self.client.post(f"/practice/{sid}/pause", json={"control_token": token})
+        self.assertEqual(paused.status_code, 200)
+        restored = self.client.get(location)
+        self.assertIn("请对照参考答案自评".encode(), restored.data)
+        self.assertIn("练习已暂停".encode(), restored.data)
+        resumed_token = self.control_token("practice_sessions", sid)
+        self.client.post(f"/practice/{sid}/resume", data={"control_token": resumed_token})
+        self.client.get(location)
+        rated = self.client.post(location, data={"rating": "fuzzy", "control_token": self.control_token("practice_sessions", sid)})
+        self.assertIn("本题已记录".encode(), rated.data)
+
+    def test_active_session_is_visible_on_dashboard_and_hides_new_practice_form(self):
+        self.add_question("single", ["A"])
+        location = self.client.post("/practice", data={"count": 1}).headers["Location"]
+        dashboard = self.client.get("/")
+        self.assertIn("进行中任务".encode(), dashboard.data)
+        self.assertIn(location.encode(), dashboard.data)
+        setup = self.client.get("/practice")
+        self.assertIn("尚未结束的章节练习".encode(), setup.data)
+        self.assertNotIn(b'id="practice-setup-form"', setup.data)
 
     def test_mock_exam_is_snapshotted_and_scored(self):
         qid = self.add_question("single", ["A"])
@@ -466,12 +624,113 @@ class StudyAppTests(unittest.TestCase):
         location = response.headers["Location"]
         page = self.client.get(location)
         self.assertIn("模拟考试".encode("utf-8"), page.data)
-        result = self.client.post(location, data={f"q_{qid}": "A"}, follow_redirects=True)
+        exam_id = location.rstrip("/").split("/")[-1]
+        result = self.client.post(location, data={f"q_{qid}": "A", "control_token": self.control_token("mock_exams", exam_id)}, follow_redirects=True)
         self.assertIn(b"100.0%", result.data)
         with self.mod.db() as conn:
             exam = conn.execute("SELECT * FROM mock_exams").fetchone()
             self.assertEqual(exam["score"], 100.0)
             self.assertEqual(json.loads(exam["question_ids_json"]), [qid])
+
+    def test_mock_autosave_pause_resume_and_submit_preserve_qualifying(self):
+        qid = self.add_question("single", ["A"])
+        with self.mod.db() as conn:
+            conn.execute("""INSERT INTO project_settings(project_id,key,value) VALUES (?, 'qualifying_count','1')
+              ON CONFLICT(project_id,key) DO UPDATE SET value='1'""", (self.project_id,))
+            conn.execute("""INSERT INTO project_settings(project_id,key,value) VALUES (?, 'qualifying_minutes','5')
+              ON CONFLICT(project_id,key) DO UPDATE SET value='5'""", (self.project_id,))
+        location = self.client.post("/mock", data={"count": 1, "minutes": 5}).headers["Location"]
+        exam_id = location.rstrip("/").split("/")[-1]
+        self.client.get(location)
+        token = self.control_token("mock_exams", exam_id)
+        saved = self.client.post(f"/api/mock/{exam_id}/answers", json={
+            "control_token": token, "question_id": qid, "answers": ["A"],
+        })
+        self.assertEqual(saved.get_json()["status"], "saved")
+        with self.mod.db() as conn:
+            conn.execute("UPDATE mock_exams SET active_started_at=? WHERE id=?",
+                         ((self.mod.datetime.now() - self.mod.timedelta(seconds=10)).replace(microsecond=0).isoformat(sep=" "), exam_id))
+        paused = self.client.post(f"/mock/{exam_id}/pause", data={"control_token": token, f"q_{qid}": "A"})
+        self.assertEqual(paused.status_code, 302)
+        with self.mod.db() as conn:
+            exam = conn.execute("SELECT * FROM mock_exams WHERE id=?", (exam_id,)).fetchone()
+            self.assertEqual(exam["status"], "paused")
+            self.assertLessEqual(exam["remaining_seconds"], 290)
+            qualifying = exam["qualifying"]
+            self.assertEqual(qualifying, 1)
+        page = self.client.get(location)
+        self.assertIn("模拟考试已暂停".encode(), page.data)
+        self.assertIn(b'value="A" data-question-id', page.data)
+        self.assertNotIn(b"interval=setInterval", page.data)
+        self.assertNotIn(b"heartbeat:true", page.data)
+        resumed = self.client.post(f"/mock/{exam_id}/resume", data={
+            "control_token": self.control_token("mock_exams", exam_id),
+        })
+        self.assertEqual(resumed.status_code, 302)
+        self.client.get(location)
+        token = self.control_token("mock_exams", exam_id)
+        result = self.client.post(location, data={"control_token": token, f"q_{qid}": "A"}, follow_redirects=True)
+        self.assertIn(b"100.0%", result.data)
+        with self.mod.db() as conn:
+            exam = conn.execute("SELECT * FROM mock_exams WHERE id=?", (exam_id,)).fetchone()
+            self.assertEqual(exam["qualifying"], qualifying)
+            self.assertEqual(exam["status"], "submitted")
+
+    def test_mock_unpaused_timeout_submits_saved_answers(self):
+        qid = self.add_question("single", ["A"])
+        location = self.client.post("/mock", data={"count": 1, "minutes": 1}).headers["Location"]
+        exam_id = location.rstrip("/").split("/")[-1]
+        self.client.get(location)
+        token = self.control_token("mock_exams", exam_id)
+        self.client.post(f"/api/mock/{exam_id}/answers", json={
+            "control_token": token, "question_id": qid, "answers": ["A"],
+        })
+        with self.mod.db() as conn:
+            conn.execute("UPDATE mock_exams SET remaining_seconds=1,active_started_at=? WHERE id=?",
+                         ((self.mod.datetime.now() - self.mod.timedelta(seconds=5)).replace(microsecond=0).isoformat(sep=" "), exam_id))
+        result = self.client.get(location, follow_redirects=True)
+        self.assertIn(b"100.0%", result.data)
+        with self.mod.db() as conn:
+            exam = conn.execute("SELECT * FROM mock_exams WHERE id=?", (exam_id,)).fetchone()
+            self.assertEqual(exam["status"], "submitted")
+            self.assertEqual(conn.execute("SELECT COUNT(*) n FROM attempts WHERE session_id=?", (exam_id,)).fetchone()["n"], 1)
+
+    def test_mock_terminate_discards_draft_without_result_or_attempts(self):
+        qid = self.add_question("single", ["A"])
+        location = self.client.post("/mock", data={"count": 1, "minutes": 5}).headers["Location"]
+        exam_id = location.rstrip("/").split("/")[-1]
+        self.client.get(location)
+        token = self.control_token("mock_exams", exam_id)
+        self.client.post(f"/api/mock/{exam_id}/answers", json={
+            "control_token": token, "question_id": qid, "answers": ["A"],
+        })
+        result = self.client.post(f"/mock/{exam_id}/terminate", data={"control_token": token}, follow_redirects=True)
+        self.assertIn("不生成成绩".encode(), result.data)
+        with self.mod.db() as conn:
+            exam = conn.execute("SELECT * FROM mock_exams WHERE id=?", (exam_id,)).fetchone()
+            self.assertEqual(exam["status"], "terminated")
+            self.assertEqual(exam["answers_json"], "{}")
+            self.assertIsNone(exam["submitted_at"])
+            self.assertEqual(conn.execute("SELECT COUNT(*) n FROM attempts WHERE session_id=?", (exam_id,)).fetchone()["n"], 0)
+
+    def test_second_device_takes_over_mock_control(self):
+        qid = self.add_question("single", ["A"])
+        location = self.client.post("/mock", data={"count": 1, "minutes": 5}).headers["Location"]
+        exam_id = location.rstrip("/").split("/")[-1]
+        first = self.mod.app.test_client(); second = self.mod.app.test_client()
+        with first.session_transaction() as state: state["current_project_id"] = self.project_id
+        with second.session_transaction() as state: state["current_project_id"] = self.project_id
+        first.get(location); first_token = self.control_token("mock_exams", exam_id)
+        second.get(location); second_token = self.control_token("mock_exams", exam_id)
+        stale = first.post(f"/api/mock/{exam_id}/answers", json={
+            "control_token": first_token, "question_id": qid, "answers": ["A"],
+        })
+        self.assertEqual(stale.status_code, 409)
+        self.assertEqual(stale.get_json()["code"], "session_taken_over")
+        current = second.post(f"/api/mock/{exam_id}/answers", json={
+            "control_token": second_token, "question_id": qid, "answers": ["A"],
+        })
+        self.assertEqual(current.status_code, 200)
 
     def test_readiness_requires_all_three_gates(self):
         qid = self.add_question("single", ["A"])
@@ -480,7 +739,9 @@ class StudyAppTests(unittest.TestCase):
             chapter = conn.execute("SELECT c.id FROM chapters c JOIN knowledge_points kp ON kp.chapter_id=c.id JOIN questions q ON q.knowledge_point_id=kp.id WHERE q.id=?", (qid,)).fetchone()["id"]
             conn.execute("INSERT INTO labs(project_id,chapter_id,title,status,created_at,updated_at) VALUES (?,?,?,?,?,?)", (self.project_id, chapter, "达标实验", "completed", self.mod.now_iso(), self.mod.now_iso()))
             for n in range(3):
-                conn.execute("INSERT INTO mock_exams(id,project_id,started_at,submitted_at,question_ids_json,score,objective_count,time_limit,qualifying) VALUES (?,?,?,?,?,?,?,?,1)", (f"ready-{n}", self.project_id, self.mod.now_iso(), self.mod.now_iso(), "[]", 90, 50, 60))
+                conn.execute("""INSERT INTO mock_exams(id,project_id,started_at,submitted_at,question_ids_json,
+                  score,objective_count,time_limit,qualifying,status) VALUES (?,?,?,?,?,?,?,?,1,'submitted')""",
+                  (f"ready-{n}", self.project_id, self.mod.now_iso(), self.mod.now_iso(), "[]", 90, 50, 60))
             state = self.mod.readiness(conn, self.project_id)
             self.assertTrue(state["ready"])
 

@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path, PurePosixPath
 
+from app_runtime import connect_database
 
 PACKAGE_FORMAT = "i-love-learning-question-bank"
 PACKAGE_VERSION = 1
@@ -28,10 +29,7 @@ def now_iso() -> str:
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path, timeout=30)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    return connect_database(db_path)
 
 
 def _sha256_bytes(content: bytes) -> str:
@@ -250,11 +248,11 @@ def cleanup_expired_exports(db_path: Path, data_dir: Path) -> int:
 
 
 class ExportQueue:
-    def __init__(self, db_path: Path, data_dir: Path, max_bytes: int):
+    def __init__(self, db_path: Path, data_dir: Path, max_bytes: int, executor=None):
         self.db_path = db_path
         self.data_dir = data_dir
         self.max_bytes = max_bytes
-        self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="study-export")
+        self.executor = executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix="study-export")
         self.lock = threading.Lock()
 
     def recover(self) -> None:

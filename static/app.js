@@ -1,5 +1,26 @@
 (() => {
   const root = document.documentElement;
+  const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+  document.querySelectorAll('form').forEach(form => {
+    if ((form.method || 'get').toLowerCase() !== 'post' || form.querySelector('input[name="_csrf_token"]')) return;
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = '_csrf_token';
+    input.value = csrfToken;
+    form.appendChild(input);
+  });
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = (input, options = {}) => {
+    const request = input instanceof Request ? input : null;
+    const url = new URL(request?.url || input, window.location.href);
+    const method = String(options.method || request?.method || 'GET').toUpperCase();
+    if (url.origin === window.location.origin && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+      const headers = new Headers(options.headers || request?.headers || {});
+      headers.set('X-CSRF-Token', csrfToken);
+      options = {...options, headers};
+    }
+    return nativeFetch(input, options);
+  };
   const themeNames = {system: '跟随系统', light: '浅色模式', dark: '深色模式'};
 
   function syncThemeLabels() {
@@ -38,6 +59,15 @@
   document.querySelectorAll('[data-confirm]').forEach(el => el.addEventListener('click', event => {
     if (!confirm(el.dataset.confirm)) event.preventDefault();
   }));
+
+  document.querySelectorAll('[data-terminate-open]').forEach(button => button.addEventListener('click', () => {
+    const dialog = document.querySelector(button.dataset.terminateOpen);
+    if (dialog) dialog.showModal();
+  }));
+  document.querySelectorAll('[data-terminate-dialog]').forEach(dialog => {
+    dialog.querySelectorAll('[data-terminate-close]').forEach(button => button.addEventListener('click', () => dialog.close()));
+    dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
+  });
 
   document.querySelectorAll('[data-check-all]').forEach(el => el.addEventListener('change', () => {
     document.querySelectorAll(el.dataset.checkAll).forEach(box => { box.checked = el.checked; box.dispatchEvent(new Event('change')); });

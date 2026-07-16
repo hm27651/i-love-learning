@@ -5,6 +5,8 @@ cd /d "%~dp0"
 set "VENV=%~dp0.venv"
 set "PYTHON=%~dp0.venv\Scripts\python.exe"
 set "SERVER=%~dp0.venv\Scripts\waitress-serve.exe"
+set "REQ_FILE=%~dp0requirements.txt"
+set "REQ_MARKER=%~dp0.venv\.requirements.sha256"
 set "APP_ROOT=%~dp0"
 set "PORT=23456"
 
@@ -19,13 +21,25 @@ if errorlevel 10 goto :already_running
 
 if not exist "%PYTHON%" (
   echo First run: creating the local Python environment...
-  python -m venv "%VENV%"
+  py -3.11 -m venv "%VENV%" 2>nul
+  if errorlevel 1 python -m venv "%VENV%"
   if errorlevel 1 goto :failed
 )
 
-echo Checking required packages...
-"%PYTHON%" -m pip install -r "%~dp0requirements.txt" --disable-pip-version-check
+for /f %%H in ('powershell -NoProfile -Command "(Get-FileHash -Algorithm SHA256 -LiteralPath $env:REQ_FILE).Hash"') do set "REQ_HASH=%%H"
+set "INSTALLED_HASH="
+if exist "%REQ_MARKER%" set /p INSTALLED_HASH=<"%REQ_MARKER%"
+if not exist "%SERVER%" goto :install_requirements
+if /I not "%REQ_HASH%"=="%INSTALLED_HASH%" goto :install_requirements
+goto :launch
+
+:install_requirements
+echo Installing required packages...
+"%PYTHON%" -m pip install -r "%REQ_FILE%" --disable-pip-version-check
 if errorlevel 1 goto :failed
+>"%REQ_MARKER%" echo %REQ_HASH%
+
+:launch
 
 echo.
 echo I Love Learning is running.

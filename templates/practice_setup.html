@@ -1,5 +1,9 @@
 {% extends 'base.html' %}{% block title %}章节练习 · I Love Learning{% endblock %}{% block content %}
 <div class="page-head"><div><div class="eyebrow">自由练习</div><h1>选择今天要练的范围</h1><div class="lead">只使用已核验题目；复习提醒不会打断你推进新章节。</div></div></div>
+{% if active_session %}
+<section class="card active-session-card"><div><div class="eyebrow">{{ '已暂停' if active_session.row.status=='paused' else '进行中' }}</div><h2>你有一组尚未结束的章节练习</h2><p class="muted">已推进 {{ active_session.done }} / {{ active_session.total }} 题。继续后会回到保存的题目和答案状态。</p></div><div class="actions"><a class="button" href="{{ url_for('practice_run',session_id=active_session.row.id) }}">继续练习</a><button class="danger" type="button" data-terminate-open="#practice-setup-terminate">终止旧会话</button></div></section>
+<dialog class="session-dialog" id="practice-setup-terminate" data-terminate-dialog><form method="post" action="{{ url_for('practice_terminate',session_id=active_session.row.id) }}"><h2>终止这组章节练习？</h2><p>已完成的答题与掌握度记录会保留，剩余题目不再继续。</p><input type="hidden" name="takeover" value="1"><div class="dialog-actions"><button class="secondary" type="button" data-terminate-close>取消</button><button class="danger">确认终止</button></div></form></dialog>
+{% else %}
 <div class="grid cols-3" style="margin-bottom:18px">
   <button type="button" class="card quick-card" data-count-preset="10"><span class="quick-icon">10</span><span><b>轻量热身</b><small>约 8–12 分钟</small></span></button>
   <button type="button" class="card quick-card" data-count-preset="20"><span class="quick-icon">20</span><span><b>标准练习</b><small>适合一个知识块</small></span></button>
@@ -20,7 +24,9 @@
   <div class="field full"><div class="danger-note">题目会随机排列，多选题必须完整匹配才判为正确。</div></div>
   <div class="field full actions"><button type="submit">生成练习并开始</button><a class="button secondary" href="{{ url_for('review') }}">改做今日复习</a></div>
 </form>
+{% endif %}
 {% endblock %}{% block scripts %}<script>
+{% if not active_session %}
 const form=document.querySelector('#practice-setup-form'),subject=document.querySelector('#subject-select'),chapter=document.querySelector('#chapter-select'),point=document.querySelector('#point-select'),type=document.querySelector('#type-select'),count=document.querySelector('#practice-count'),countField=document.querySelector('#practice-count-field'),matchBox=document.querySelector('#practice-match-count'),modes=[...document.querySelectorAll('input[name="selection_mode"]')];
 let countRequest;
 function filterOptions(select,key,value){[...select.options].forEach((option,index)=>{if(!index)return;option.hidden=Boolean(value)&&option.dataset[key]!==value});if(select.selectedOptions[0]?.hidden)select.value=''}
@@ -38,4 +44,5 @@ chapter.addEventListener('change',()=>{filterOptions(point,'chapter',chapter.val
 modes.forEach(mode=>mode.addEventListener('change',syncSelectionMode));
 document.querySelectorAll('[data-count-preset]').forEach(button=>button.addEventListener('click',()=>{form.elements.selection_mode.value='count';count.value=button.dataset.countPreset;syncSelectionMode();form.scrollIntoView({behavior:'smooth',block:'center'})}));
 syncSelectionMode();updateMatchCount();
+{% endif %}
 </script>{% endblock %}

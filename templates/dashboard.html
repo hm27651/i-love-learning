@@ -7,7 +7,7 @@
     <div class="lead">当前项目：{{ project.name }}。把理解、练习和复盘连成稳定闭环。</div>
     <div class="hero-actions">
       {% if due %}<a class="button" href="{{ url_for('review') }}">开始今日复习</a>{% else %}<a class="button" href="{{ url_for('practice') }}">开始章节练习</a>{% endif %}
-      {% if continue_session %}<a class="button secondary" href="{{ url_for('practice_run',session_id=continue_session.id) }}">继续上次练习</a>{% endif %}
+      {% if active_tasks %}<a class="button secondary" href="#active-tasks">查看进行中任务</a>{% endif %}
     </div>
   </div>
   <div class="streak-panel">
@@ -19,8 +19,10 @@
 <div class="quick-actions">
   <a class="quick-card" href="{{ url_for('review') }}"><span class="quick-icon">复</span><span><b>到期复习</b><small>{{ due }} 道等待处理</small></span><b>→</b></a>
   <form class="quick-card" method="post" action="{{ url_for('practice') }}"><span class="quick-icon">10</span><span><b>快速练习</b><small>随机 10 道已核验题</small></span><input type="hidden" name="count" value="10"><button class="small" type="submit">开始</button></form>
-  {% if continue_session %}<a class="quick-card" href="{{ url_for('practice_run',session_id=continue_session.id) }}"><span class="quick-icon">续</span><span><b>继续练习</b><small>从上次停下的位置继续</small></span><b>→</b></a>{% elif current_modules.tasks %}<a class="quick-card" href="{{ url_for('labs') }}"><span class="quick-icon">验</span><span><b>完成一个{{ project.practice_alias }}</b><small>用验证结果巩固所学</small></span><b>→</b></a>{% else %}<a class="quick-card" href="{{ url_for('knowledge') }}"><span class="quick-icon">树</span><span><b>整理知识树</b><small>补充章节与知识点</small></span><b>→</b></a>{% endif %}
+  {% if active_tasks %}<a class="quick-card" href="#active-tasks"><span class="quick-icon">续</span><span><b>继续进行中任务</b><small>{{ active_tasks|length }} 个会话等待处理</small></span><b>→</b></a>{% elif current_modules.tasks %}<a class="quick-card" href="{{ url_for('labs') }}"><span class="quick-icon">验</span><span><b>完成一个{{ project.practice_alias }}</b><small>用验证结果巩固所学</small></span><b>→</b></a>{% else %}<a class="quick-card" href="{{ url_for('knowledge') }}"><span class="quick-icon">树</span><span><b>整理知识树</b><small>补充章节与知识点</small></span><b>→</b></a>{% endif %}
 </div>
+
+{% if active_tasks %}<section class="card section-gap" id="active-tasks"><div class="eyebrow">进行中任务</div><h2>从保存的位置继续</h2><div class="active-task-list">{% for task in active_tasks %}{% set title='模拟考试' if task.kind=='mock' else ('错题复习' if task.kind=='review' else '章节练习') %}<article class="active-task-item"><div><span class="badge {{ 'draft' if task.status=='paused' else 'verified' }}">{{ '已暂停' if task.status=='paused' else '进行中' }}</span><h3>{{ title }}</h3><p class="muted">已处理 {{ task.done }} / {{ task.total }}</p></div><div class="actions"><a class="button small" href="{{ url_for('mock_exam',exam_id=task.id) if task.kind=='mock' else url_for('practice_run',session_id=task.id) }}">继续</a><button class="small danger" type="button" data-terminate-open="#dashboard-terminate-{{ loop.index }}">终止</button></div></article><dialog class="session-dialog" id="dashboard-terminate-{{ loop.index }}" data-terminate-dialog><form method="post" action="{{ url_for('mock_terminate',exam_id=task.id) if task.kind=='mock' else url_for('practice_terminate',session_id=task.id) }}"><h2>终止{{ title }}？</h2><p>{{ '草稿答案会清除，本次不生成成绩。' if task.kind=='mock' else '已完成答题记录会保留，剩余题目不再继续。' }}</p><input type="hidden" name="takeover" value="1"><div class="dialog-actions"><button class="secondary" type="button" data-terminate-close>取消</button><button class="danger">确认终止</button></div></form></dialog>{% endfor %}</div></section>{% endif %}
 
 {% if current_modules.plan or current_modules.readiness %}
 <div class="grid cols-2 section-gap">

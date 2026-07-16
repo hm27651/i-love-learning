@@ -1,24 +1,26 @@
 {% extends 'base.html' %}{% block title %}{{ '错题复习' if mode=='review' else '正在练习' }} · I Love Learning{% endblock %}{% block content %}
+{% set paused=session_status=='paused' %}{% set selected=saved_state.get('selected',[]) %}
 <div class="practice-layout">
-  <div class="page-head compact"><div><div class="eyebrow">{{ '复习队列' if mode=='review' else '专注练习' }}</div><h1>{{ '错题复习' if mode=='review' else '章节练习' }}</h1></div><span class="badge">掌握 {{ question.mastery_level }}/4</span></div>
+  <div class="page-head compact"><div><div class="eyebrow">{{ '复习队列' if mode=='review' else '专注练习' }}</div><h1>{{ '错题复习' if mode=='review' else '章节练习' }}</h1></div><div class="session-controls">{% if paused %}<span class="badge draft">已暂停</span><form method="post" action="{{ url_for('practice_resume',session_id=session_id) }}"><input type="hidden" name="control_token" value="{{ control_token }}"><button>继续</button></form>{% else %}<button class="secondary" type="button" data-practice-pause>暂停</button>{% endif %}<button class="danger" type="button" data-terminate-open="#practice-terminate">终止</button></div></div>
+  {% if paused %}<div class="session-paused-banner"><b>练习已暂停</b><span>当前题目、选择和答案解析已保存。点击“继续”后才能修改或作答。</span></div>{% endif %}
   <div class="practice-topline"><span class="muted">{{ index+1 }} / {{ total }}</span><div class="progress"><i style="width:{{ ((index+1)*100/total)|round }}%"></i></div><span class="muted">{{ question.chapter_name }}</span></div>
-  <section class="card practice-shell">
-    <div class="question-meta"><span class="badge">{{ TYPE_NAMES[question.type] }}</span><span class="badge">{{ question.subject_name }}</span><span class="badge">{{ question.knowledge_point_name }}</span></div>
+  <section class="card practice-shell {{ 'is-paused' if paused }}">
+    <div class="question-meta"><span class="badge">{{ TYPE_NAMES[question.type] }}</span><span class="badge">{{ question.subject_name }}</span><span class="badge">{{ question.knowledge_point_name }}</span><span class="badge">掌握 {{ question.mastery_level }}/4</span></div>
     <div class="question-content">
       <div class="question-stem">{{ question.stem }}</div>
       {% if question.image_path %}<p><img class="question-image" src="{{ url_for('upload',name=question.image_path) }}" alt="题目配图"></p>{% endif %}
       {% if not feedback %}
-      <form method="post" class="stack" data-practice-form>
+      <form method="post" class="stack" data-practice-form><input type="hidden" name="control_token" value="{{ control_token }}"><fieldset class="session-fieldset" {% if paused %}disabled{% endif %}>
         {% if question.type in ['single','true_false'] %}
           {% set opts=question.options if question.type=='single' else ['对','错'] %}
-          {% for opt in opts %}<label class="option" tabindex="0"><input type="radio" name="answer" value="{{ ('true' if loop.index==1 else 'false') if question.type=='true_false' else LETTERS[loop.index0] }}" required><span class="option-key">{{ loop.index }}</span><span>{% if question.type=='single' %}<b>{{ LETTERS[loop.index0] }}.</b> {% endif %}{{ opt }}</span></label>{% endfor %}
+          {% for opt in opts %}{% set value=('true' if loop.index==1 else 'false') if question.type=='true_false' else LETTERS[loop.index0] %}<label class="option" tabindex="0"><input type="radio" name="answer" value="{{ value }}" {{ 'checked' if value in selected }} required><span class="option-key">{{ loop.index }}</span><span>{% if question.type=='single' %}<b>{{ LETTERS[loop.index0] }}.</b> {% endif %}{{ opt }}</span></label>{% endfor %}
         {% elif question.type=='multiple' %}
-          {% for opt in question.options %}<label class="option" tabindex="0"><input type="checkbox" name="answer" value="{{ LETTERS[loop.index0] }}"><span class="option-key">{{ loop.index }}</span><span><b>{{ LETTERS[loop.index0] }}.</b> {{ opt }}</span></label>{% endfor %}
+          {% for opt in question.options %}<label class="option" tabindex="0"><input type="checkbox" name="answer" value="{{ LETTERS[loop.index0] }}" {{ 'checked' if LETTERS[loop.index0] in selected }}><span class="option-key">{{ loop.index }}</span><span><b>{{ LETTERS[loop.index0] }}.</b> {{ opt }}</span></label>{% endfor %}
         {% else %}
-          <label for="draft-answer">先写下你的答案</label><textarea id="draft-answer" name="draft" placeholder="把协议逻辑、关键命令或判断依据写出来，再查看参考答案…"></textarea>
+          <label for="draft-answer">先写下你的答案</label><textarea id="draft-answer" name="draft" placeholder="把协议逻辑、关键命令或判断依据写出来，再查看参考答案…">{{ saved_state.get('draft','') }}</textarea>
         {% endif %}
         <div class="practice-actionbar"><span class="shortcut-hint">数字键选择{% if question.type not in ['fill','short'] %} · Enter 提交{% endif %}</span><button type="submit" name="action" value="{{ 'reveal' if question.type in ['fill','short'] else 'submit' }}">{{ '显示参考答案' if question.type in ['fill','short'] else '提交答案' }}</button></div>
-      </form>
+      </fieldset></form>
       {% else %}
       <div class="feedback {{ 'correct' if feedback.correct else ('incorrect' if feedback.correct is defined else '') }}">
         <div class="feedback-head"><div><h2>{% if feedback.correct is defined %}{{ '回答正确' if feedback.correct else '这题答错了' }}{% elif feedback.reveal %}请对照参考答案自评{% else %}本题已记录{% endif %}</h2><div class="muted">{% if feedback.correct is defined and feedback.correct %}保持节奏，必要时再展开解析。{% elif feedback.correct is defined %}先看正确答案，再确认错在概念、命令还是审题。{% else %}主观题的自评会直接影响下次复习时间。{% endif %}</div></div>{% if feedback.progress %}<div class="mastery-change">掌握度 <b>{{ feedback.progress.before }} → {{ feedback.progress.after }}</b><br>下次复习 {{ feedback.progress.due_date }}</div>{% endif %}</div>
@@ -27,12 +29,15 @@
         {% if question.source %}<p class="muted">来源：{{ question.source }}{% if question.version_note %} · {{ question.version_note }}{% endif %}</p>{% endif %}
       </div>
       {% if feedback.reveal %}
-        <form method="post" class="rating-grid section-gap"><button name="rating" value="mastered">掌握<br><small>能独立复述</small></button><button class="secondary" name="rating" value="fuzzy">模糊<br><small>有提示才会</small></button><button class="danger" name="rating" value="unknown">不会<br><small>需要重学</small></button></form>
+        <form method="post" class="rating-grid section-gap"><input type="hidden" name="control_token" value="{{ control_token }}"><fieldset class="rating-fieldset" {% if paused %}disabled{% endif %}><button name="rating" value="mastered">掌握<br><small>能独立复述</small></button><button class="secondary" name="rating" value="fuzzy">模糊<br><small>有提示才会</small></button><button class="danger" name="rating" value="unknown">不会<br><small>需要重学</small></button></fieldset></form>
       {% else %}
-        <form method="post" class="practice-actionbar"><span class="shortcut-hint">已更新掌握度与下次复习日期</span><button name="action" value="next">{{ '完成本组' if index+1==total else '下一题' }} →</button></form>
+        <form method="post" class="practice-actionbar"><input type="hidden" name="control_token" value="{{ control_token }}"><span class="shortcut-hint">已更新掌握度与下次复习日期</span><button name="action" value="next" {% if paused %}disabled{% endif %}>{{ '完成本组' if index+1==total else '下一题' }} →</button></form>
       {% endif %}
       {% endif %}
     </div>
   </section>
 </div>
-{% endblock %}
+<dialog class="session-dialog" id="practice-terminate" data-terminate-dialog><form method="post" action="{{ url_for('practice_terminate',session_id=session_id) }}"><h2>终止本次{{ '错题复习' if mode=='review' else '章节练习' }}？</h2><p>已完成的答题和掌握度记录会保留，剩余题目不再继续，终止后不能恢复。</p><input type="hidden" name="control_token" value="{{ control_token }}"><div class="dialog-actions"><button class="secondary" type="button" data-terminate-close>取消</button><button class="danger">确认终止</button></div></form></dialog>
+{% endblock %}{% block scripts %}<script>
+const pauseButton=document.querySelector('[data-practice-pause]');if(pauseButton){pauseButton.addEventListener('click',async()=>{pauseButton.disabled=true;const form=document.querySelector('[data-practice-form]'),selected=form?[...form.querySelectorAll('input[name="answer"]:checked')].map(x=>x.value):[],draft=form?.querySelector('[name="draft"]')?.value||'';try{const response=await fetch('{{ url_for('practice_pause',session_id=session_id) }}',{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({control_token:'{{ control_token }}',selected,draft})}),data=await response.json();if(!response.ok)throw new Error(data.error||'暂停失败');location.reload()}catch(error){pauseButton.disabled=false;alert(error.message)}})}
+</script>{% endblock %}

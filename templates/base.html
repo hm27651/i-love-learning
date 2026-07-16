@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
+  <meta name="csrf-token" content="{{ csrf_token }}">
   <title>{% block title %}I Love Learning{% endblock %}</title>
   <script>document.documentElement.dataset.theme=localStorage.getItem('study-theme')||localStorage.getItem('h3cse-theme')||'system';document.documentElement.classList.toggle('sidebar-collapsed',(localStorage.getItem('study-sidebar')||localStorage.getItem('h3cse-sidebar'))==='collapsed')</script>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
@@ -44,6 +45,7 @@
           <a class="nav-item {{ 'active' if request.endpoint in ['knowledge','toggle_core','knowledge_rename'] }}" href="{{ url_for('knowledge') }}"><span class="nav-icon">树</span><span>知识树</span></a>
           <a class="nav-item {{ 'active' if request.endpoint in ['imports_center','import_detail','export_create','export_download'] }}" href="{{ url_for('imports_center') }}"><span class="nav-icon">传</span><span>导入与导出</span></a>
           <a class="nav-item {{ 'active' if request.endpoint in ['projects','project_form'] }}" href="{{ url_for('projects') }}"><span class="nav-icon">项</span><span>项目管理</span></a>
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('data_management.') }}" href="{{ url_for('data_management.index') }}"><span class="nav-icon">护</span><span>数据管理</span></a>
           <a class="nav-item {{ 'active' if request.endpoint=='app_settings' }}" href="{{ url_for('app_settings') }}"><span class="nav-icon">设</span><span>设置</span></a>
         </div>
       </nav>
@@ -83,6 +85,7 @@
       {% if current_modules.plan %}<a href="{{ url_for('plans') }}"><span>周</span>学习计划</a>{% endif %}<a href="{{ url_for('questions') }}"><span>题</span>题库管理</a>
       <a href="{{ url_for('knowledge') }}"><span>树</span>知识树</a><a href="{{ url_for('imports_center') }}"><span>传</span>导入与导出</a>
       <a href="{{ url_for('projects') }}"><span>项</span>项目管理</a><a href="{{ url_for('app_settings') }}"><span>设</span>设置</a>
+      <a href="{{ url_for('data_management.index') }}"><span>护</span>数据管理</a>
     </div>
   </aside>
 

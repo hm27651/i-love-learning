@@ -4,11 +4,13 @@ import json
 import os
 import random
 import re
+import secrets
 import shutil
 import socket
 import sqlite3
 import uuid
 import hashlib
+import hmac
 from io import BytesIO
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
@@ -20,6 +22,8 @@ from werkzeug.utils import secure_filename
 from migrations import LATEST_SCHEMA, PROJECT_MODULE_DEFAULTS, PROJECT_SETTING_DEFAULTS, create_project, migrate_database
 from import_service import ImportQueue, PARSER_VERSION, SUPPORTED_TYPES, commit_job
 from transfer_service import ExportQueue, cleanup_expired_exports, count_export_questions
+from data_management import create_data_management_blueprint
+from app_runtime import connect_database, configure_file_logging, create_background_executor, load_or_create_secret
 from knowledge_service import (
     KnowledgeDeleteError,
     analyze_delete,
@@ -33,16 +37,49 @@ BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("STUDY_DATA_DIR") or os.environ.get("H3CSE_DATA_DIR", BASE_DIR / "data"))
 UPLOAD_DIR = DATA_DIR / "uploads"
 DB_PATH = DATA_DIR / os.environ.get("STUDY_DB_NAME", "h3cse.db")
-BACKUP_DIR = BASE_DIR / "backups"
+BACKUP_DIR = Path(os.environ.get("STUDY_BACKUP_DIR") or (Path.home() / "Documents" / "I-Love-Learning-Backup"))
 APP_PORT = int(os.environ.get("PORT", "23456"))
 ALLOWED_IMAGES = {"png", "jpg", "jpeg", "gif", "webp"}
 OBJECTIVE_TYPES = {"single", "multiple", "true_false"}
 
 app = Flask(__name__)
 app.config.update(
-    SECRET_KEY=os.environ.get("STUDY_SECRET") or os.environ.get("H3CSE_SECRET", "study-local-only"),
+    SECRET_KEY=load_or_create_secret(DATA_DIR),
     MAX_CONTENT_LENGTH=int(os.environ.get("STUDY_MAX_UPLOAD_MB", "50")) * 1024 * 1024,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Strict",
 )
+configure_file_logging(app.logger, DATA_DIR)
+
+
+def csrf_token():
+    token = session.get("csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["csrf_token"] = token
+    return token
+
+
+@app.before_request
+def protect_state_changing_requests():
+    if app.config.get("TESTING") or request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return None
+    supplied = request.headers.get("X-CSRF-Token") or request.form.get("_csrf_token")
+    expected = session.get("csrf_token")
+    if not expected or not supplied or not hmac.compare_digest(expected, supplied):
+        abort(400, description="页面安全令牌已失效，请刷新后重试")
+    return None
+
+
+@app.after_request
+def add_security_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if response.status_code >= 500:
+        app.logger.error("%s %s -> %s", request.method, request.path, response.status_code)
+    return response
 
 
 @app.errorhandler(413)
@@ -78,9 +115,7 @@ DEFAULT_WEEKS = [
 def db():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
+    connection = connect_database(DB_PATH)
     try:
         yield connection
         connection.commit()
@@ -93,6 +128,7 @@ def db():
 
 def init_db():
     with db() as conn:
+        conn.execute("PRAGMA journal_mode = WAL")
         migrate_database(conn)
         for key, value in DEFAULT_SETTINGS.items():
             conn.execute("INSERT OR IGNORE INTO settings(key,value) VALUES (?,?)", (key, value))
@@ -100,6 +136,21 @@ def init_db():
 
 def now_iso():
     return datetime.now().replace(microsecond=0).isoformat(sep=" ")
+
+
+def parse_iso(value):
+    try:
+        return datetime.fromisoformat(value) if value else None
+    except (TypeError, ValueError):
+        return None
+
+
+def json_object(value, fallback=None):
+    try:
+        parsed = json.loads(value or "{}")
+        return parsed if isinstance(parsed, dict) else (fallback if fallback is not None else {})
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return fallback if fallback is not None else {}
 
 
 def settings(conn):
@@ -467,7 +518,7 @@ def template_globals():
             "PROJECT_TYPE_NAMES": {"practice": "普通刷题", "exam_prep": "考试备考", "practical_certification": "实操认证"},
             "LETTERS": "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "today": date.today().isoformat(),
             "current_project": project, "available_projects": projects, "current_modules": modules,
-            "global_due_count": global_due}
+            "global_due_count": global_due, "csrf_token": csrf_token()}
 
 
 @app.post("/projects/switch")
@@ -627,8 +678,19 @@ def dashboard():
           JOIN knowledge_points kp ON kp.id=q.knowledge_point_id JOIN chapters c ON c.id=kp.chapter_id
           JOIN subjects s ON s.id=c.subject_id WHERE s.project_id=? AND p.error_count>0""", (project_id,)).fetchone()["n"]
         mocks = conn.execute("SELECT * FROM mock_exams WHERE project_id=? AND submitted_at IS NOT NULL ORDER BY submitted_at DESC LIMIT 5", (project_id,)).fetchall()
-        sessions = conn.execute("SELECT * FROM practice_sessions WHERE project_id=? AND completed_at IS NULL ORDER BY started_at DESC LIMIT 10", (project_id,)).fetchall()
-        continue_session = next((s for s in sessions if s["current_index"] < len(json.loads(s["question_ids_json"]))), None)
+        sessions = conn.execute("""SELECT * FROM practice_sessions WHERE project_id=?
+          AND status IN ('active','paused') ORDER BY started_at DESC""", (project_id,)).fetchall()
+        continue_session = sessions[0] if sessions else None
+        active_tasks = []
+        for item in sessions:
+            progress_info = session_progress(item)
+            active_tasks.append({"id": item["id"], "kind": item["mode"], "status": item["status"],
+                                 "done": progress_info["done"], "total": progress_info["total"]})
+        active_mock = active_mock_session(conn, project_id)
+        if active_mock:
+            active_tasks.append({"id": active_mock["id"], "kind": "mock", "status": active_mock["status"],
+                                 "done": len([value for value in json_object(active_mock["answers_json"]).values() if value]),
+                                 "total": active_mock["objective_count"]})
         last_seven = conn.execute("""SELECT COUNT(*) n FROM attempts a JOIN questions q ON q.id=a.question_id
           JOIN knowledge_points kp ON kp.id=q.knowledge_point_id JOIN chapters c ON c.id=kp.chapter_id
           JOIN subjects s ON s.id=c.subject_id WHERE s.project_id=? AND a.answered_at>=?""",
@@ -636,7 +698,8 @@ def dashboard():
         return render_template("dashboard.html", chapters=chapter_stats(conn, project_id), due=due, errors=errors,
                                mocks=mocks, readiness=readiness(conn, project_id), week=active_week(conn, project),
                                streak=learning_streak(conn, project_id), last_seven=last_seven,
-                               continue_session=continue_session, trend=attempt_trend(conn, project_id, 14), project=project)
+                               continue_session=continue_session, active_tasks=active_tasks,
+                               trend=attempt_trend(conn, project_id, 14), project=project)
 
 
 @app.route("/progress")
@@ -975,6 +1038,43 @@ def question_review(question_id):
                                position=position, previous_id=previous_id, next_id=next_id)
 
 
+ACTIVE_SESSION_STATUSES = ("active", "paused")
+
+
+def active_practice_session(conn, project_id, mode):
+    return conn.execute("""SELECT * FROM practice_sessions WHERE project_id=? AND mode=?
+      AND status IN ('active','paused') ORDER BY started_at DESC LIMIT 1""", (project_id, mode)).fetchone()
+
+
+def active_mock_session(conn, project_id):
+    return conn.execute("""SELECT * FROM mock_exams WHERE project_id=? AND status IN ('active','paused')
+      ORDER BY started_at DESC LIMIT 1""", (project_id,)).fetchone()
+
+
+def session_progress(row):
+    if not row:
+        return None
+    total = len(json.loads(row["question_ids_json"] or "[]"))
+    return {"row": row, "total": total, "done": min(int(row["current_index"]), total)}
+
+
+def issue_control_token(conn, table, item_id):
+    token = uuid.uuid4().hex
+    conn.execute(f"UPDATE {table} SET control_token=?,updated_at=? WHERE id=?", (token, now_iso(), item_id))
+    return token
+
+
+def control_token_matches(row, token):
+    return bool(token and row["control_token"] and token == row["control_token"])
+
+
+def session_conflict_response():
+    message = "该会话已在另一台设备或另一个页面接管，请返回模块页后重新打开。"
+    if request.is_json or request.accept_mimetypes.best == "application/json":
+        return {"error": message, "code": "session_taken_over"}, 409
+    return render_template("session_conflict.html", message=message), 409
+
+
 def practice_filter_clause(values, project_id):
     where, params = ["q.status='verified'", "s.project_id=?"], [project_id]
     for key, column in (("subject_id", "s.id"), ("chapter_id", "c.id"),
@@ -997,7 +1097,11 @@ def practice_match_count():
 def practice():
     with db() as conn:
         project_id = current_project(conn)["id"]
+        active = active_practice_session(conn, project_id, "practice")
         if request.method == "POST":
+            if active:
+                flash("已有进行中或暂停的章节练习，请先继续或终止旧会话", "error")
+                return redirect(url_for("practice"))
             where, params = practice_filter_clause(request.form, project_id)
             rows = question_rows(conn, where, params)
             random.shuffle(rows)
@@ -1007,50 +1111,134 @@ def practice():
             if not rows:
                 flash("没有符合条件的已核验题目", "error"); return redirect(url_for("practice"))
             sid = uuid.uuid4().hex
-            conn.execute("INSERT INTO practice_sessions(id,project_id,mode,question_ids_json,started_at) VALUES (?,?,?,?,?)", (sid, project_id, "practice", json.dumps([r["id"] for r in rows]), now_iso()))
+            now = now_iso()
+            try:
+                conn.execute("""INSERT INTO practice_sessions(id,project_id,mode,question_ids_json,started_at,
+                  status,state_json,updated_at) VALUES (?,?,?,?,?,'active','{}',?)""",
+                  (sid, project_id, "practice", json.dumps([r["id"] for r in rows]), now, now))
+            except sqlite3.IntegrityError:
+                conn.rollback(); flash("已有进行中或暂停的章节练习", "error")
+                return redirect(url_for("practice"))
             return redirect(url_for("practice_run", session_id=sid))
         subjects = conn.execute("SELECT id,project_id,name,code exam_code FROM subjects WHERE project_id=? ORDER BY id", (project_id,)).fetchall()
         chapters = conn.execute("SELECT c.* FROM chapters c JOIN subjects s ON s.id=c.subject_id WHERE s.project_id=? ORDER BY c.id", (project_id,)).fetchall()
         points = conn.execute("""SELECT kp.* FROM knowledge_points kp JOIN chapters c ON c.id=kp.chapter_id
           JOIN subjects s ON s.id=c.subject_id WHERE s.project_id=? ORDER BY kp.id""", (project_id,)).fetchall()
-        return render_template("practice_setup.html", subjects=subjects, chapters=chapters, points=points)
+        return render_template("practice_setup.html", subjects=subjects, chapters=chapters, points=points,
+                               active_session=session_progress(active))
 
 
 @app.route("/practice/<session_id>", methods=["GET", "POST"])
 def practice_run(session_id):
     with db() as conn:
         project_id = current_project(conn)["id"]
-        session = conn.execute("SELECT * FROM practice_sessions WHERE id=? AND project_id=?", (session_id, project_id)).fetchone()
-        if not session: abort(404)
-        ids = json.loads(session["question_ids_json"]); index = session["current_index"]
+        item = conn.execute("SELECT * FROM practice_sessions WHERE id=? AND project_id=?", (session_id, project_id)).fetchone()
+        if not item: abort(404)
+        ids = json.loads(item["question_ids_json"]); index = item["current_index"]
+        answered_count = conn.execute("SELECT COUNT(*) n FROM attempts WHERE session_id=?", (session_id,)).fetchone()["n"]
+        if item["status"] == "terminated":
+            return render_template("session_terminated.html", kind="practice", mode=item["mode"],
+                                   answered_count=answered_count, total=len(ids))
+        if item["status"] == "completed":
+            return render_template("practice_complete.html", total=len(ids), mode=item["mode"])
         if index >= len(ids):
-            conn.execute("UPDATE practice_sessions SET completed_at=COALESCE(completed_at,?) WHERE id=?", (now_iso(), session_id))
-            return render_template("practice_complete.html", total=len(ids), mode=session["mode"])
+            now = now_iso()
+            conn.execute("""UPDATE practice_sessions SET status='completed',completed_at=COALESCE(completed_at,?),
+              updated_at=?,control_token='' WHERE id=?""", (now, now, session_id))
+            return render_template("practice_complete.html", total=len(ids), mode=item["mode"])
         question = get_question(conn, ids[index], project_id)
-        feedback = None
+        state = json_object(item["state_json"])
+        feedback = state.get("feedback")
+        token = item["control_token"]
+        if request.method == "GET" and item["status"] in ACTIVE_SESSION_STATUSES:
+            token = issue_control_token(conn, "practice_sessions", session_id)
         if request.method == "POST":
+            if item["status"] != "active" or not control_token_matches(item, request.form.get("control_token")):
+                return session_conflict_response()
             if request.form.get("action") == "next":
-                conn.execute("UPDATE practice_sessions SET current_index=current_index+1 WHERE id=?", (session_id,))
+                if not feedback:
+                    abort(400)
+                conn.execute("""UPDATE practice_sessions SET current_index=current_index+1,state_json='{}',
+                  updated_at=? WHERE id=?""", (now_iso(), session_id))
                 return redirect(url_for("practice_run", session_id=session_id))
+            rating = request.form.get("rating")
+            if feedback and not (feedback.get("reveal") and rating):
+                abort(409)
             if question["type"] in OBJECTIVE_TYPES:
                 correct, submitted = grade_objective(question, request.form)
-                progress_change = record_attempt(conn, question, session["mode"], is_correct=correct, session_id=session_id)
+                progress_change = record_attempt(conn, question, item["mode"], is_correct=correct, session_id=session_id)
                 feedback = {"correct": correct, "submitted": submitted, "progress": progress_change}
+                state = {"selected": submitted, "draft": "", "feedback": feedback}
             else:
-                rating = request.form.get("rating")
                 if rating:
-                    progress_change = record_attempt(conn, question, session["mode"], rating=rating, session_id=session_id)
+                    progress_change = record_attempt(conn, question, item["mode"], rating=rating, session_id=session_id)
                     feedback = {"rating": rating, "progress": progress_change}
+                    state = {"selected": [], "draft": state.get("draft", request.form.get("draft", "")), "feedback": feedback}
                 else:
                     feedback = {"reveal": True}
+                    state = {"selected": [], "draft": request.form.get("draft", ""), "feedback": feedback}
+            conn.execute("UPDATE practice_sessions SET state_json=?,updated_at=? WHERE id=?",
+                         (json.dumps(state, ensure_ascii=False), now_iso(), session_id))
         return render_template("practice_question.html", question=question, feedback=feedback, index=index,
-                               total=len(ids), session_id=session_id, mode=session["mode"])
+                               total=len(ids), session_id=session_id, mode=item["mode"], session_status=item["status"],
+                               control_token=token, saved_state=state)
+
+
+@app.post("/practice/<session_id>/pause")
+def practice_pause(session_id):
+    with db() as conn:
+        project_id = current_project(conn)["id"]
+        item = conn.execute("SELECT * FROM practice_sessions WHERE id=? AND project_id=?", (session_id, project_id)).fetchone()
+        if not item: abort(404)
+        payload = request.get_json(silent=True) or request.form
+        if item["status"] != "active" or not control_token_matches(item, payload.get("control_token")):
+            return session_conflict_response()
+        state = json_object(item["state_json"])
+        if not state.get("feedback"):
+            selected = payload.get("selected", [])
+            if not isinstance(selected, list): selected = [selected]
+            state.update({"selected": [str(value) for value in selected], "draft": str(payload.get("draft", ""))})
+        now = now_iso()
+        conn.execute("""UPDATE practice_sessions SET status='paused',state_json=?,paused_at=?,updated_at=?
+          WHERE id=?""", (json.dumps(state, ensure_ascii=False), now, now, session_id))
+        return {"status": "paused", "redirect": url_for("practice_run", session_id=session_id)}
+
+
+@app.post("/practice/<session_id>/resume")
+def practice_resume(session_id):
+    with db() as conn:
+        project_id = current_project(conn)["id"]
+        item = conn.execute("SELECT * FROM practice_sessions WHERE id=? AND project_id=?", (session_id, project_id)).fetchone()
+        if not item: abort(404)
+        if item["status"] != "paused" or not control_token_matches(item, request.form.get("control_token")):
+            return session_conflict_response()
+        conn.execute("UPDATE practice_sessions SET status='active',paused_at=NULL,updated_at=? WHERE id=?",
+                     (now_iso(), session_id))
+    return redirect(url_for("practice_run", session_id=session_id))
+
+
+@app.post("/practice/<session_id>/terminate")
+def practice_terminate(session_id):
+    with db() as conn:
+        project_id = current_project(conn)["id"]
+        item = conn.execute("SELECT * FROM practice_sessions WHERE id=? AND project_id=?", (session_id, project_id)).fetchone()
+        if not item: abort(404)
+        takeover = request.form.get("takeover") == "1"
+        if item["status"] not in ACTIVE_SESSION_STATUSES:
+            return redirect(url_for("practice_run", session_id=session_id))
+        if not takeover and not control_token_matches(item, request.form.get("control_token")):
+            return session_conflict_response()
+        now = now_iso()
+        conn.execute("""UPDATE practice_sessions SET status='terminated',terminated_at=?,updated_at=?,
+          control_token='' WHERE id=?""", (now, now, session_id))
+    return redirect(url_for("practice_run", session_id=session_id))
 
 
 @app.route("/review", methods=["GET", "POST"])
 def review():
     with db() as conn:
         project_id = current_project(conn)["id"]
+        active = active_practice_session(conn, project_id, "review")
         where = "q.status='verified' AND p.attempts>0 AND s.project_id=?"
         params = [project_id]
         mode = request.args.get("filter", "due")
@@ -1060,12 +1248,22 @@ def review():
         rows = question_rows(conn, where, params)
         rows.sort(key=lambda item: (item["due_date"] or "9999-12-31", -item["error_count"], item["mastery_level"]))
         if request.method == "POST":
+            if active:
+                flash("已有进行中或暂停的错题复习，请先继续或终止旧会话", "error")
+                return redirect(url_for("review"))
             ids = [int(x) for x in request.form.getlist("question_id")]
             if not ids: flash("请选择至少一道题", "error"); return redirect(request.url)
             sid = uuid.uuid4().hex
             valid_ids = [value for value in ids if id_belongs_to_project(conn, "question", value, project_id)]
             if not valid_ids: abort(400)
-            conn.execute("INSERT INTO practice_sessions(id,project_id,mode,question_ids_json,started_at) VALUES (?,?,?,?,?)", (sid, project_id, "review", json.dumps(valid_ids), now_iso()))
+            now = now_iso()
+            try:
+                conn.execute("""INSERT INTO practice_sessions(id,project_id,mode,question_ids_json,started_at,
+                  status,state_json,updated_at) VALUES (?,?,?,?,?,'active','{}',?)""",
+                  (sid, project_id, "review", json.dumps(valid_ids), now, now))
+            except sqlite3.IntegrityError:
+                conn.rollback(); flash("已有进行中或暂停的错题复习", "error")
+                return redirect(url_for("review"))
             return redirect(url_for("practice_run", session_id=sid))
         chapters = conn.execute("SELECT c.id,c.name FROM chapters c JOIN subjects s ON s.id=c.subject_id WHERE s.project_id=? ORDER BY c.id", (project_id,)).fetchall()
         counts = {
@@ -1076,7 +1274,8 @@ def review():
               JOIN knowledge_points kp ON kp.id=q.knowledge_point_id JOIN chapters c ON c.id=kp.chapter_id
               JOIN subjects s ON s.id=c.subject_id WHERE s.project_id=? AND q.status='verified' AND p.error_count>0""", (project_id,)).fetchone()["n"],
         }
-        return render_template("review.html", questions=rows, chapters=chapters, filter=mode, counts=counts)
+        return render_template("review.html", questions=rows, chapters=chapters, filter=mode, counts=counts,
+                               active_session=session_progress(active))
 
 
 @app.route("/labs")
@@ -1151,13 +1350,66 @@ def plans():
         return render_template("plans.html", plans=rows, completed_questions=completed_questions, completed_labs=completed_labs, project=project)
 
 
+def mock_remaining_seconds(exam, at=None):
+    remaining = max(0, int(exam["remaining_seconds"] or 0))
+    if exam["status"] != "active":
+        return remaining
+    started = parse_iso(exam["active_started_at"])
+    if not started:
+        return remaining
+    elapsed = max(0, int(((at or datetime.now()) - started).total_seconds()))
+    return max(0, remaining - elapsed)
+
+
+def normalize_mock_answer(question, values):
+    if not isinstance(values, list):
+        values = [values]
+    clean = [str(value) for value in values if str(value)]
+    return sorted(set(clean)) if question["type"] == "multiple" else clean[:1]
+
+
+def merge_mock_form_answers(questions_list, saved, form):
+    result = dict(saved)
+    for question in questions_list:
+        key = f"q_{question['id']}"
+        if key in form:
+            result[str(question["id"])] = normalize_mock_answer(question, form.getlist(key))
+    return result
+
+
+def finalize_mock_exam(conn, exam, project_id, answers):
+    ids = json.loads(exam["question_ids_json"] or "[]")
+    questions_list = [get_question(conn, qid, project_id) for qid in ids]
+    normalized, correct = {}, 0
+    for question in questions_list:
+        submitted = normalize_mock_answer(question, answers.get(str(question["id"]), []))
+        normalized[str(question["id"])] = submitted
+        correct += int(submitted == question["answer"])
+    score = round(100 * correct / len(questions_list), 1) if questions_list else 0
+    now = now_iso()
+    changed = conn.execute("""UPDATE mock_exams SET status='submitted',submitted_at=?,answers_json=?,score=?,
+      remaining_seconds=0,active_started_at=NULL,control_token='',updated_at=?
+      WHERE id=? AND status='active'""",
+      (now, json.dumps(normalized, ensure_ascii=False), score, now, exam["id"])).rowcount
+    if not changed:
+        return False
+    for question in questions_list:
+        record_attempt(conn, question, "mock", is_correct=normalized[str(question["id"])] == question["answer"],
+                       session_id=exam["id"])
+    return True
+
+
 @app.route("/mock", methods=["GET", "POST"])
 def mock_setup():
     with db() as conn:
         project = current_project(conn); project_id = project["id"]
         if not module_enabled(conn, project_id, "mock"): return module_disabled(project, "模拟考试")
         cfg = project_settings(conn, project_id)
+        active = active_mock_session(conn, project_id)
         if request.method == "POST":
+            if active:
+                flash("已有进行中或暂停的模拟考试，请先继续或终止旧会话", "error")
+                return redirect(url_for("mock_setup"))
             count = max(1, min(200, int(request.form.get("count", cfg["qualifying_count"]))))
             minutes = max(1, min(300, int(request.form.get("minutes", cfg["qualifying_minutes"]))))
             chapter_ids = [int(x) for x in request.form.getlist("chapter_id")]
@@ -1172,12 +1424,21 @@ def mock_setup():
             core_ids = {r["id"] for r in conn.execute("SELECT c.id FROM chapters c JOIN subjects s ON s.id=c.subject_id WHERE s.project_id=? AND c.is_core=1", (project_id,))}
             qualifying = count >= int(cfg["qualifying_count"]) and minutes == int(cfg["qualifying_minutes"]) and core_ids.issubset(set(chapter_ids) if chapter_ids else core_ids)
             exam_id = uuid.uuid4().hex
-            conn.execute("INSERT INTO mock_exams(id,project_id,started_at,question_ids_json,objective_count,time_limit,qualifying,chapter_ids_json) VALUES (?,?,?,?,?,?,?,?)",
-                         (exam_id, project_id, now_iso(), json.dumps([r["id"] for r in chosen]), count, minutes, int(qualifying), json.dumps(chapter_ids)))
+            now = now_iso()
+            try:
+                conn.execute("""INSERT INTO mock_exams(id,project_id,started_at,question_ids_json,objective_count,
+                  time_limit,qualifying,chapter_ids_json,status,remaining_seconds,active_started_at,updated_at)
+                  VALUES (?,?,?,?,?,?,?,?,'active',?,?,?)""",
+                  (exam_id, project_id, now, json.dumps([r["id"] for r in chosen]), count, minutes,
+                   int(qualifying), json.dumps(chapter_ids), minutes * 60, now, now))
+            except sqlite3.IntegrityError:
+                conn.rollback(); flash("已有进行中或暂停的模拟考试", "error")
+                return redirect(url_for("mock_setup"))
             return redirect(url_for("mock_exam", exam_id=exam_id))
         chapters = conn.execute("""SELECT c.*,s.name subject_name,(SELECT COUNT(*) FROM questions q JOIN knowledge_points kp ON kp.id=q.knowledge_point_id WHERE kp.chapter_id=c.id AND q.status='verified' AND q.type IN ('single','multiple','true_false')) question_count FROM chapters c JOIN subjects s ON s.id=c.subject_id WHERE s.project_id=? ORDER BY s.id,c.id""", (project_id,)).fetchall()
         history = conn.execute("SELECT * FROM mock_exams WHERE project_id=? AND submitted_at IS NOT NULL ORDER BY submitted_at DESC LIMIT 10", (project_id,)).fetchall()
-        return render_template("mock_setup.html", chapters=chapters, history=history, cfg=cfg)
+        return render_template("mock_setup.html", chapters=chapters, history=history, cfg=cfg,
+                               active_exam=active)
 
 
 @app.route("/mock/<exam_id>", methods=["GET", "POST"])
@@ -1186,28 +1447,116 @@ def mock_exam(exam_id):
         project_id = current_project(conn)["id"]
         exam = conn.execute("SELECT * FROM mock_exams WHERE id=? AND project_id=?", (exam_id, project_id)).fetchone()
         if not exam: abort(404)
+        if exam["status"] == "terminated":
+            return render_template("session_terminated.html", kind="mock", mode="mock", answered_count=0,
+                                   total=exam["objective_count"])
         ids = json.loads(exam["question_ids_json"])
         questions_list = [get_question(conn, qid, project_id) for qid in ids]
-        if exam["submitted_at"]:
+        if exam["status"] == "submitted" or exam["submitted_at"]:
             answers = json.loads(exam["answers_json"])
             details = []
             for q in questions_list:
                 submitted = answers.get(str(q["id"]), [])
                 details.append({"question": q, "submitted": submitted, "correct": submitted == q["answer"]})
             return render_template("mock_result.html", exam=exam, details=details)
-        if request.method == "POST":
-            answers, correct = {}, 0
-            for q in questions_list:
-                key = f"q_{q['id']}"
-                submitted = sorted(request.form.getlist(key)) if q["type"] == "multiple" else [request.form.get(key, "")]
-                answers[str(q["id"])] = submitted
-                ok = submitted == q["answer"]
-                correct += int(ok)
-                record_attempt(conn, q, "mock", is_correct=ok, session_id=exam_id)
-            score = round(100 * correct / len(questions_list), 1) if questions_list else 0
-            conn.execute("UPDATE mock_exams SET submitted_at=?,answers_json=?,score=? WHERE id=?", (now_iso(), json.dumps(answers, ensure_ascii=False), score, exam_id))
+        remaining = mock_remaining_seconds(exam)
+        if exam["status"] == "active" and remaining <= 0:
+            finalize_mock_exam(conn, exam, project_id, json_object(exam["answers_json"]))
             return redirect(url_for("mock_exam", exam_id=exam_id))
-        return render_template("mock_exam.html", exam=exam, questions=questions_list)
+        token = exam["control_token"]
+        if request.method == "GET":
+            token = issue_control_token(conn, "mock_exams", exam_id)
+        if request.method == "POST":
+            if exam["status"] != "active" or not control_token_matches(exam, request.form.get("control_token")):
+                return session_conflict_response()
+            saved = json_object(exam["answers_json"])
+            answers = merge_mock_form_answers(questions_list, saved, request.form)
+            finalize_mock_exam(conn, exam, project_id, answers)
+            return redirect(url_for("mock_exam", exam_id=exam_id))
+        return render_template("mock_exam.html", exam=exam, questions=questions_list,
+                               saved_answers=json_object(exam["answers_json"]), remaining_seconds=remaining,
+                               control_token=token)
+
+
+@app.post("/api/mock/<exam_id>/answers")
+def mock_save_answer(exam_id):
+    with db() as conn:
+        project_id = current_project(conn)["id"]
+        exam = conn.execute("SELECT * FROM mock_exams WHERE id=? AND project_id=?", (exam_id, project_id)).fetchone()
+        if not exam: abort(404)
+        payload = request.get_json(silent=True) or {}
+        if exam["status"] != "active" or not control_token_matches(exam, payload.get("control_token")):
+            return session_conflict_response()
+        if mock_remaining_seconds(exam) <= 0:
+            finalize_mock_exam(conn, exam, project_id, json_object(exam["answers_json"]))
+            return {"status": "submitted", "redirect": url_for("mock_exam", exam_id=exam_id)}, 409
+        if payload.get("heartbeat"):
+            return {"status": "active", "remaining_seconds": mock_remaining_seconds(exam)}
+        try:
+            question_id = int(payload.get("question_id"))
+        except (TypeError, ValueError):
+            abort(400)
+        if question_id not in set(json.loads(exam["question_ids_json"])):
+            abort(400)
+        question = get_question(conn, question_id, project_id)
+        answers = json_object(exam["answers_json"])
+        answers[str(question_id)] = normalize_mock_answer(question, payload.get("answers", []))
+        conn.execute("UPDATE mock_exams SET answers_json=?,updated_at=? WHERE id=?",
+                     (json.dumps(answers, ensure_ascii=False), now_iso(), exam_id))
+        return {"status": "saved", "saved_at": now_iso()}
+
+
+@app.post("/mock/<exam_id>/pause")
+def mock_pause(exam_id):
+    with db() as conn:
+        project_id = current_project(conn)["id"]
+        exam = conn.execute("SELECT * FROM mock_exams WHERE id=? AND project_id=?", (exam_id, project_id)).fetchone()
+        if not exam: abort(404)
+        if exam["status"] != "active" or not control_token_matches(exam, request.form.get("control_token")):
+            return session_conflict_response()
+        ids = json.loads(exam["question_ids_json"])
+        questions_list = [get_question(conn, qid, project_id) for qid in ids]
+        answers = merge_mock_form_answers(questions_list, json_object(exam["answers_json"]), request.form)
+        remaining = mock_remaining_seconds(exam)
+        if remaining <= 0:
+            finalize_mock_exam(conn, exam, project_id, answers)
+            return redirect(url_for("mock_exam", exam_id=exam_id))
+        now = now_iso()
+        conn.execute("""UPDATE mock_exams SET status='paused',remaining_seconds=?,answers_json=?,
+          active_started_at=NULL,paused_at=?,updated_at=? WHERE id=?""",
+          (remaining, json.dumps(answers, ensure_ascii=False), now, now, exam_id))
+    return redirect(url_for("mock_exam", exam_id=exam_id))
+
+
+@app.post("/mock/<exam_id>/resume")
+def mock_resume(exam_id):
+    with db() as conn:
+        project_id = current_project(conn)["id"]
+        exam = conn.execute("SELECT * FROM mock_exams WHERE id=? AND project_id=?", (exam_id, project_id)).fetchone()
+        if not exam: abort(404)
+        if exam["status"] != "paused" or not control_token_matches(exam, request.form.get("control_token")):
+            return session_conflict_response()
+        now = now_iso()
+        conn.execute("""UPDATE mock_exams SET status='active',active_started_at=?,paused_at=NULL,updated_at=?
+          WHERE id=?""", (now, now, exam_id))
+    return redirect(url_for("mock_exam", exam_id=exam_id))
+
+
+@app.post("/mock/<exam_id>/terminate")
+def mock_terminate(exam_id):
+    with db() as conn:
+        project_id = current_project(conn)["id"]
+        exam = conn.execute("SELECT * FROM mock_exams WHERE id=? AND project_id=?", (exam_id, project_id)).fetchone()
+        if not exam: abort(404)
+        takeover = request.form.get("takeover") == "1"
+        if exam["status"] not in ACTIVE_SESSION_STATUSES:
+            return redirect(url_for("mock_exam", exam_id=exam_id))
+        if not takeover and not control_token_matches(exam, request.form.get("control_token")):
+            return session_conflict_response()
+        now = now_iso()
+        conn.execute("""UPDATE mock_exams SET status='terminated',terminated_at=?,updated_at=?,answers_json='{}',
+          remaining_seconds=0,active_started_at=NULL,control_token='' WHERE id=?""", (now, now, exam_id))
+    return redirect(url_for("mock_exam", exam_id=exam_id))
 
 
 def import_job_for_browser(conn, job_id):
@@ -1637,12 +1986,22 @@ def app_settings():
                                db_path=str(DB_PATH), data_dir=str(DATA_DIR), lan_url=lan_url())
 
 
+app.register_blueprint(create_data_management_blueprint(
+    db_provider=db,
+    current_project_fn=current_project,
+    backup_fn=backup_data_snapshot,
+    backup_dir_fn=lambda: BACKUP_DIR,
+    db_path_fn=lambda: DB_PATH,
+))
+
+
 init_db()
 with db() as _startup_conn:
     app.config["MAX_CONTENT_LENGTH"] = int(os.environ.get("STUDY_MAX_UPLOAD_MB") or settings(_startup_conn).get("max_import_mb", "50")) * 1024 * 1024
-import_queue = ImportQueue(DB_PATH, DATA_DIR)
+background_executor = create_background_executor()
+import_queue = ImportQueue(DB_PATH, DATA_DIR, executor=background_executor)
 import_queue.recover()
-export_queue = ExportQueue(DB_PATH, DATA_DIR, app.config["MAX_CONTENT_LENGTH"])
+export_queue = ExportQueue(DB_PATH, DATA_DIR, app.config["MAX_CONTENT_LENGTH"], executor=background_executor)
 export_queue.recover()
 
 if __name__ == "__main__":

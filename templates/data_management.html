@@ -1,0 +1,23 @@
+{% extends 'base.html' %}{% block title %}数据管理 · I Love Learning{% endblock %}{% block content %}
+<div class="page-head"><div><div class="eyebrow">安全与维护</div><h1>学习数据管理</h1><p class="lead">只清理练习、复习和模拟记录，不会删除题目、知识树、导入原件或项目设置。</p></div><form method="post" action="{{ url_for('data_management.create_backup') }}"><button>立即完整备份</button></form></div>
+
+<section class="card section-gap"><div class="split"><div><h2>备份位置</h2><p class="muted">{{ backup_dir }}</p></div><span class="badge verified">仓库外保存</span></div><p class="muted">恢复时请先停止软件，再用备份中的完整 data 目录替换当前 data 目录。</p></section>
+
+<section class="card section-gap">
+  <div class="split"><div><h2>学习会话</h2><p class="muted">先筛选和核对，再选择需要清理的会话。清理前会自动创建完整备份。</p></div></div>
+  <form method="get" class="filterbar four section-gap">
+    <label>开始日期<input type="date" name="from_date" value="{{ from_date }}"></label>
+    <label>结束日期<input type="date" name="to_date" value="{{ to_date }}"></label>
+    <label>类型<select name="mode"><option value="">全部</option><option value="practice" {{ 'selected' if mode=='practice' }}>章节练习</option><option value="review" {{ 'selected' if mode=='review' }}>错题复习</option><option value="mock" {{ 'selected' if mode=='mock' }}>模拟考试</option></select></label>
+    <button class="secondary">筛选</button>
+  </form>
+  {% if rows %}<form method="post" action="{{ url_for('data_management.cleanup') }}" class="section-gap">
+    <div class="table-wrap data-session-table"><table><thead><tr><th class="select-cell"><input type="checkbox" data-check-all="input[name='session_key']" aria-label="全选"></th><th>类型</th><th>开始时间</th><th>状态</th><th>进度</th><th>成绩</th></tr></thead><tbody>{% for row in rows %}<tr><td class="select-cell"><input type="checkbox" name="session_key" value="{{ row.key }}"></td><td>{{ {'practice':'章节练习','review':'错题复习','mock':'模拟考试'}[row.kind] }}</td><td>{{ row.started_at }}</td><td><span class="badge {{ 'verified' if row.status in ['completed','submitted'] else 'draft' if row.status in ['active','paused'] else 'archived' }}">{{ row.status }}</span></td><td>{{ row.answered_count }} / {{ row.question_count }}</td><td>{{ (row.score|string ~ '%') if row.score is not none else '—' }}</td></tr>{% endfor %}</tbody></table></div>
+    <div class="data-session-mobile">{% for row in rows %}<label class="data-session-card"><input type="checkbox" name="session_key" value="{{ row.key }}"><span><b>{{ {'practice':'章节练习','review':'错题复习','mock':'模拟考试'}[row.kind] }}</b><small>{{ row.started_at }} · {{ row.answered_count }}/{{ row.question_count }}{% if row.score is not none %} · {{ row.score }}%{% endif %}</small></span><span class="badge {{ 'verified' if row.status in ['completed','submitted'] else 'draft' if row.status in ['active','paused'] else 'archived' }}">{{ row.status }}</span></label>{% endfor %}</div>
+    <div class="danger-note section-gap">清理后页面统计会根据剩余答题记录重新计算。请输入“清理所选记录”确认。</div>
+    <div class="actions section-gap"><input name="confirmation" autocomplete="off" placeholder="清理所选记录"><button class="danger">清理所选记录</button></div>
+  </form>{% else %}<div class="empty section-gap">当前筛选范围没有学习会话。</div>{% endif %}
+</section>
+
+<section class="card section-gap"><h2>最近备份</h2><div class="transfer-job-list section-gap">{% for item in backups %}<article class="transfer-job"><div><b>{{ item.name }}</b><small>{{ item.created_at }}</small></div><div><span class="badge verified">{{ (item.database_size/1024/1024)|round(2) }} MB</span><small>{{ item.path }}</small></div></article>{% else %}<div class="empty">还没有备份。</div>{% endfor %}</div></section>
+{% endblock %}

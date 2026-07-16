@@ -1,0 +1,3 @@
+{% extends 'base.html' %}{% block title %}会话已被接管 · I Love Learning{% endblock %}{% block content %}
+<section class="card empty"><div class="quick-icon" style="margin:0 auto 14px">↻</div><h1>会话已在另一页面接管</h1><p>{{ message }}</p><div class="actions" style="justify-content:center"><a class="button" href="{{ request.path }}">重新打开当前会话</a><a class="button secondary" href="{{ url_for('dashboard') }}">返回首页</a></div></section>
+{% endblock %}
