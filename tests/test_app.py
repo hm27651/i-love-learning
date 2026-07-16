@@ -2,6 +2,8 @@ import importlib
 import io
 import json
 import os
+import shutil
+import sqlite3
 import tempfile
 import time
 import unittest
@@ -183,6 +185,28 @@ class StudyAppTests(unittest.TestCase):
             progress = conn.execute("SELECT * FROM question_progress WHERE question_id=?", (question_id,)).fetchone()
             self.assertEqual((progress["mastery_level"], progress["attempts"], progress["correct_attempts"], progress["error_count"]), (1, 1, 1, 0))
         self.assertTrue(any(self.mod.BACKUP_DIR.glob("learning_cleanup_*/data/h3cse.db")))
+
+    def test_manual_backup_restores_to_an_independent_directory(self):
+        question_id = self.add_question()
+        response = self.client.post("/data-management/backup", follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        snapshot = max(self.mod.BACKUP_DIR.glob("manual_*/data"), key=lambda path: path.stat().st_mtime)
+        restore = Path(self.temp.name) / "restore-check"
+        if restore.exists():
+            shutil.rmtree(restore)
+        shutil.copytree(snapshot, restore)
+        conn = sqlite3.connect(restore / "h3cse.db")
+        try:
+            self.assertEqual(conn.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+            self.assertEqual(conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0], 4)
+            self.assertEqual(conn.execute("SELECT id FROM questions").fetchone()[0], question_id)
+        finally:
+            conn.close()
+        self.assertEqual(
+            (Path(self.temp.name) / ".secret_key").read_text(encoding="ascii"),
+            (restore / ".secret_key").read_text(encoding="ascii"),
+        )
+        shutil.rmtree(restore)
 
     def test_question_creation_supports_multiple_choice(self):
         with self.mod.db() as conn:

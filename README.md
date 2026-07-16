@@ -19,11 +19,11 @@
 
 ## 运行要求
 
-- Windows 10/11
-- Python 3.11
+- Windows 10/11，或支持 Docker Engine 的 Ubuntu/Debian Linux
+- Windows 本机运行需要 Python 3.11；Linux 推荐使用 Docker Compose
 - 手机访问时，手机与电脑需连接同一可信局域网
 
-## 快速开始
+## Windows 快速开始
 
 1. 下载或克隆本仓库。
 2. 双击 `start.bat`；首次运行会创建本地环境并安装所需依赖。
@@ -31,9 +31,15 @@
 
 运行期间电脑和启动窗口必须保持开启。软件没有账号与登录保护，**不要配置公网端口映射，也不要在不可信网络中运行**。
 
+## Linux 部署
+
+Linux 服务器使用单容器 Docker Compose 部署，数据和备份保存在宿主机绑定目录，并仅绑定服务器内网 IP。完整步骤见 [Linux Docker Compose 部署](docs/linux-deployment.md)。
+
+Windows 与 Linux 实例默认完全独立，不共享 SQLite，也不会自动同步题库或学习进度。Linux 全新部署首次启动为空题库。
+
 ## 数据与备份
 
-数据库、题目图片、导入原件和配置都保存在 `data` 目录。“数据管理”页面可以创建完整快照，默认保存到 `%USERPROFILE%\Documents\I-Love-Learning-Backup`。恢复前先停止软件，再用快照中的完整 `data` 目录替换当前目录。归档项目不会删除内容；永久删除项目、非空知识节点和学习记录前都会自动备份。
+数据库、题目图片、导入原件和配置都保存在数据目录。“数据管理”页面可以创建完整快照；Windows 默认保存到 `%USERPROFILE%\Documents\I-Love-Learning-Backup`，Linux Docker 保存到配置的宿主机备份目录。恢复前先停止软件，再用快照中的完整 `data` 目录替换当前目录。归档项目不会删除内容；永久删除项目、非空知识节点和学习记录前都会自动备份。
 
 公开仓库不会包含本机题库：`data`、`题库` 和 `backups` 均被 Git 忽略，全新克隆首次启动时会创建零题目的数据库和默认知识结构。
 

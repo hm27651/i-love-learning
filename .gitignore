@@ -10,6 +10,7 @@ __pycache__/
 /.codex/
 /.env
 .env.*
+/deploy/linux/.env
 *.db
 *.db-wal
 *.db-shm

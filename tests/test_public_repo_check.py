@@ -44,6 +44,7 @@ class PublicRepositoryCheckTests(unittest.TestCase):
             "bank.pdf": b"%PDF",
             "question.png": b"PNG",
             ".env": b"SECRET=value",
+            "deploy/linux/.env": b"BIND_IP=192.168.2.10",
         }
         for relative, content in files.items():
             path = self.repo / relative
@@ -53,6 +54,20 @@ class PublicRepositoryCheckTests(unittest.TestCase):
         findings = scan_repository(self.repo, include_history=False)
         self.assertEqual({item.path for item in findings}, set(files))
         self.assertTrue(all(item.source == "index" for item in findings))
+
+    def test_container_configuration_is_safe_to_track(self):
+        files = {
+            "Dockerfile": "FROM python:3.11-slim-bookworm\n",
+            ".dockerignore": "data\n*.db\n.env\n",
+            "deploy/linux/compose.yaml": "services: {}\n",
+            "deploy/linux/config.example.env": "BIND_IP=192.168.2.10\n",
+        }
+        for relative, content in files.items():
+            path = self.repo / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        self.git("add", *files)
+        self.assertEqual(scan_repository(self.repo, include_history=False), [])
 
     def test_only_fixed_readme_screenshots_are_allowed(self):
         allowed = {

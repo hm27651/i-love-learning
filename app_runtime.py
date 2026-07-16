@@ -18,9 +18,11 @@ def load_or_create_secret(data_dir: Path) -> str:
     if secret_file.exists():
         value = secret_file.read_text(encoding="ascii").strip()
         if value:
+            secret_file.chmod(0o600)
             return value
     value = secrets.token_hex(32)
     secret_file.write_text(value, encoding="ascii")
+    secret_file.chmod(0o600)
     return value
 
 

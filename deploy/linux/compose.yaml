@@ -1,0 +1,50 @@
+name: i-love-learning
+
+services:
+  app:
+    image: i-love-learning:local
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      STUDY_DATA_DIR: /data
+      STUDY_BACKUP_DIR: /backups
+      STUDY_MAX_UPLOAD_MB: ${STUDY_MAX_UPLOAD_MB:-50}
+    ports:
+      - "${BIND_IP:?Set BIND_IP in deploy/linux/.env}:${HOST_PORT:-23456}:23456"
+    volumes:
+      - type: bind
+        source: ${DATA_PATH:?Set DATA_PATH in deploy/linux/.env}
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${BACKUP_PATH:?Set BACKUP_PATH in deploy/linux/.env}
+        target: /backups
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:23456/health', timeout=5).read()"
+      interval: 15s
+      timeout: 8s
+      retries: 5
+      start_period: 30s
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

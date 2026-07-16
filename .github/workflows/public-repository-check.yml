@@ -30,7 +30,80 @@ jobs:
         run: python tools/check_public_repo.py
 
       - name: Check Python syntax
-        run: python -m py_compile app.py migrations.py import_service.py knowledge_service.py
+        run: python -m py_compile app.py app_runtime.py data_management.py migrations.py import_service.py knowledge_service.py transfer_service.py
 
       - name: Run automated tests
         run: python -m unittest discover -s tests -v
+
+  linux-container:
+    runs-on: ubuntu-latest
+    env:
+      BIND_IP: 127.0.0.1
+      HOST_PORT: 23457
+      DATA_PATH: ${{ runner.temp }}/i-love-learning-data
+      BACKUP_PATH: ${{ runner.temp }}/i-love-learning-backups
+      STUDY_MAX_UPLOAD_MB: 50
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Prepare non-root bind mounts
+        run: |
+          sudo install -d -m 0750 -o 10001 -g 10001 "$DATA_PATH"
+          sudo install -d -m 0750 -o 10001 -g 10001 "$BACKUP_PATH"
+
+      - name: Require an explicit bind address
+        run: |
+          if env -u BIND_IP docker compose -f deploy/linux/compose.yaml config >/tmp/compose-without-bind.log 2>&1; then
+            cat /tmp/compose-without-bind.log
+            echo "Compose unexpectedly accepted a missing BIND_IP"
+            exit 1
+          fi
+
+      - name: Validate and build container
+        run: |
+          docker compose -f deploy/linux/compose.yaml config
+          docker compose -f deploy/linux/compose.yaml build --pull
+
+      - name: Start empty Linux instance
+        run: docker compose -f deploy/linux/compose.yaml up -d
+
+      - name: Verify health, identity and empty database
+        run: |
+          for attempt in $(seq 1 45); do
+            if curl --fail --silent "http://127.0.0.1:${HOST_PORT}/health" >/tmp/health.json; then break; fi
+            sleep 2
+          done
+          cat /tmp/health.json
+          curl --fail --silent "http://127.0.0.1:${HOST_PORT}/health" | grep '"database":"ok"'
+          test "$(docker compose -f deploy/linux/compose.yaml exec -T app id -u)" = "10001"
+          docker compose -f deploy/linux/compose.yaml exec -T app python -c "import sqlite3; c=sqlite3.connect('/data/h3cse.db'); assert c.execute('select max(version) from schema_migrations').fetchone()[0] == 4; assert c.execute('select count(*) from learning_projects').fetchone()[0] == 1; assert all(c.execute('select count(*) from '+t).fetchone()[0] == 0 for t in ('questions','attempts','question_progress','mock_exams')); assert c.execute('pragma integrity_check').fetchone()[0] == 'ok'"
+
+      - name: Verify persistent secret and manual backup
+        run: |
+          sudo test -s "$DATA_PATH/.secret_key"
+          test "$(stat -c '%a' "$DATA_PATH")" = "750"
+          test "$(sudo stat -c '%a' "$DATA_PATH/.secret_key")" = "600"
+          test "$(sudo stat -c '%a' "$DATA_PATH/h3cse.db")" = "600"
+          secret_before="$(sudo sha256sum "$DATA_PATH/.secret_key" | cut -d' ' -f1)"
+          curl --fail --silent --cookie-jar /tmp/study.cookies "http://127.0.0.1:${HOST_PORT}/data-management" >/tmp/data-management.html
+          csrf_token="$(sed -n 's/.*<meta name="csrf-token" content="\([^"]*\)">.*/\1/p' /tmp/data-management.html | head -n1)"
+          test -n "$csrf_token"
+          curl --fail --silent --location --cookie /tmp/study.cookies --cookie-jar /tmp/study.cookies --data-urlencode "_csrf_token=${csrf_token}" "http://127.0.0.1:${HOST_PORT}/data-management/backup" >/tmp/backup-result.html
+          test -n "$(sudo find "$BACKUP_PATH" -path '*/data/h3cse.db' -print -quit)"
+          docker compose -f deploy/linux/compose.yaml exec -T app python -c "import glob,sqlite3; p=glob.glob('/backups/*/data/h3cse.db')[0]; c=sqlite3.connect('file:'+p+'?mode=ro',uri=True); assert c.execute('pragma integrity_check').fetchone()[0]=='ok'; assert c.execute('select count(*) from questions').fetchone()[0]==0"
+          docker compose -f deploy/linux/compose.yaml restart app
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent "http://127.0.0.1:${HOST_PORT}/health" >/dev/null; then break; fi
+            sleep 2
+          done
+          secret_after="$(sudo sha256sum "$DATA_PATH/.secret_key" | cut -d' ' -f1)"
+          test "$secret_before" = "$secret_after"
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose -f deploy/linux/compose.yaml logs --no-color app
+
+      - name: Stop container
+        if: always()
+        run: docker compose -f deploy/linux/compose.yaml down --remove-orphans
