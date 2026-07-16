@@ -40,8 +40,8 @@ jobs:
     env:
       BIND_IP: 127.0.0.1
       HOST_PORT: 23457
-      DATA_PATH: ${{ runner.temp }}/i-love-learning-data
-      BACKUP_PATH: ${{ runner.temp }}/i-love-learning-backups
+      DATA_PATH: /tmp/i-love-learning-data
+      BACKUP_PATH: /tmp/i-love-learning-backups
       STUDY_MAX_UPLOAD_MB: 50
     steps:
       - name: Checkout source
