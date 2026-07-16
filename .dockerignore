@@ -1,6 +1,9 @@
 .git
 .github
 .venv
+build
+dist
+release
 __pycache__
 *.py[cod]
 
@@ -42,6 +45,10 @@ tmp
 *.tiff
 *.svg
 *.zip
+*.exe
+*.dll
+*.pyd
+*.msi
 *.rar
 *.7z
 
@@ -50,4 +57,3 @@ tests
 tools
 deploy
 check-public-repo.bat
-start.bat

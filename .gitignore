@@ -1,4 +1,7 @@
 /.venv/
+/build/
+/dist/
+/release/
 __pycache__/
 *.py[cod]
 /data/
@@ -36,6 +39,10 @@ __pycache__/
 *.tiff
 *.svg
 *.zip
+*.exe
+*.dll
+*.pyd
+*.msi
 *.rar
 *.7z
 

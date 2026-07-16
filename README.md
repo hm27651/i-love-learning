@@ -20,16 +20,19 @@
 ## 运行要求
 
 - Windows 10/11，或支持 Docker Engine 的 Ubuntu/Debian Linux
-- Windows 本机运行需要 Python 3.11；Linux 推荐使用 Docker Compose
+- Windows 使用 Portable 包免安装运行；源码运行仅用于开发调试
+- Linux 推荐使用 Docker Compose
 - 手机访问时，手机与电脑需连接同一可信局域网
 
 ## Windows 快速开始
 
-1. 下载或克隆本仓库。
-2. 双击 `start.bat`；首次运行会创建本地环境并安装所需依赖。
-3. 电脑打开 `http://127.0.0.1:23456`，手机使用设置页显示的局域网地址。
+1. 下载 `I-Love-Learning-Portable.zip` 并完整解压。
+2. 双击 `I-Love-Learning.exe`。
+3. 默认使用“仅本机访问”；需要手机访问时，在启动器中切换为“允许同一局域网访问”。
 
-运行期间电脑和启动窗口必须保持开启。软件没有账号与登录保护，**不要配置公网端口映射，也不要在不可信网络中运行**。
+Portable 包的数据保存在同级 `data` 目录。升级时只替换 `I-Love-Learning.exe` 和 `_internal`，保留 `data`；不要把运行中的 SQLite 数据库直接复制给别人，题库分享请使用软件内的 ZIP 导入与导出。详细说明见 [Windows Portable 使用与发布](docs/windows-portable.md)。
+
+运行期间电脑和启动器必须保持开启。软件没有账号与登录保护，**不要配置公网端口映射，也不要在不可信网络中运行**。未签名 Portable EXE 可能触发 Windows SmartScreen，首次运行时需要手动允许。
 
 ## Linux 部署
 
@@ -76,6 +79,21 @@ check-public-repo.bat --no-pause
 .venv\Scripts\python -m pip install -r requirements.txt
 .venv\Scripts\python -m unittest discover -s tests -v
 ```
+
+源码方式只用于开发调试，不作为普通 Windows 使用入口。如需从源码临时启动：
+
+```powershell
+.venv\Scripts\python -m waitress --listen=127.0.0.1:23456 app:app
+```
+
+### 构建 Windows Portable
+
+```powershell
+tools\build_portable_windows.ps1 -Python .venv\Scripts\python.exe
+tools\smoke_portable_windows.ps1 -Python .venv\Scripts\python.exe
+```
+
+构建产物位于 `dist\I-Love-Learning-Portable.zip`，并生成对应 SHA-256 文件。发布包默认不包含数据库、题库文档或本机导入文件，首次运行时会在 `data` 中创建空数据库。
 
 </details>
 

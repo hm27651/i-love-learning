@@ -1,0 +1,6 @@
+{
+  "name": "I Love Learning Portable",
+  "package": "windows-x64-onedir",
+  "data_policy": "empty-on-first-run",
+  "upgrade_policy": "replace program files and preserve data"
+}

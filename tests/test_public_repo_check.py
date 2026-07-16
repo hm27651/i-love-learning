@@ -43,6 +43,8 @@ class PublicRepositoryCheckTests(unittest.TestCase):
             "data/leak.db": b"SQLite format 3\0",
             "bank.pdf": b"%PDF",
             "question.png": b"PNG",
+            "portable.exe": b"MZ",
+            "native.pyd": b"PYD",
             ".env": b"SECRET=value",
             "deploy/linux/.env": b"BIND_IP=192.168.2.10",
         }
@@ -61,6 +63,23 @@ class PublicRepositoryCheckTests(unittest.TestCase):
             ".dockerignore": "data\n*.db\n.env\n",
             "deploy/linux/compose.yaml": "services: {}\n",
             "deploy/linux/config.example.env": "BIND_IP=192.168.2.10\n",
+        }
+        for relative, content in files.items():
+            path = self.repo / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        self.git("add", *files)
+        self.assertEqual(scan_repository(self.repo, include_history=False), [])
+
+    def test_portable_build_configuration_is_safe_to_track(self):
+        files = {
+            "I-Love-Learning.spec": "COLLECT(name='I-Love-Learning-Portable')\n",
+            "portable_launcher.py": "print('launcher')\n",
+            "requirements-portable.txt": "-r requirements.txt\npyinstaller==6.14.2\n",
+            "tools/build_portable_windows.ps1": "Write-Host portable\n",
+            "packaging/windows/README.txt": "portable readme\n",
+            "packaging/windows/version.json": "{}\n",
+            ".github/workflows/windows-portable.yml": "name: portable\n",
         }
         for relative, content in files.items():
             path = self.repo / relative

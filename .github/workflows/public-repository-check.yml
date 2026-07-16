@@ -30,7 +30,7 @@ jobs:
         run: python tools/check_public_repo.py
 
       - name: Check Python syntax
-        run: python -m py_compile app.py app_runtime.py data_management.py migrations.py import_service.py knowledge_service.py transfer_service.py
+        run: python -m py_compile app.py app_runtime.py data_management.py migrations.py import_service.py knowledge_service.py transfer_service.py portable_launcher.py
 
       - name: Run automated tests
         run: python -m unittest discover -s tests -v
