@@ -42,7 +42,7 @@ def lan_ip() -> str | None:
 
 
 def lan_url(port: int = DEFAULT_PORT) -> str:
-    ip = lan_ip() or "本机局域网IP"
+    ip = lan_ip() or "本机局域网 IP"
     return f"http://{ip}:{port}"
 
 
@@ -96,12 +96,13 @@ class Launcher:
 
         self.window = Tk()
         self.window.title(APP_NAME)
-        self.window.geometry("520x300")
-        self.window.minsize(460, 280)
+        self.window.geometry("560x360")
+        self.window.minsize(500, 330)
         self.window.protocol("WM_DELETE_WINDOW", self.close)
         self.local_only = BooleanVar(self.window, value=True)
         self.status = StringVar(self.window, value="未启动")
         self.address = StringVar(self.window, value=local_url(self.port))
+        self.data_path = StringVar(self.window, value=str(data_dir(self.root_path)))
         self._build_ui()
         self._refresh_address()
 
@@ -123,7 +124,17 @@ class Launcher:
         ttk.Label(info, textvariable=self.status).grid(row=0, column=1, sticky="w", pady=3)
         ttk.Label(info, text="地址").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=3)
         ttk.Label(info, textvariable=self.address).grid(row=1, column=1, sticky="w", pady=3)
+        ttk.Label(info, text="数据目录").grid(row=2, column=0, sticky="nw", padx=(0, 8), pady=3)
+        ttk.Label(info, textvariable=self.data_path, wraplength=410).grid(row=2, column=1, sticky="w", pady=3)
         info.columnconfigure(1, weight=1)
+
+        hint = ttk.Label(
+            frame,
+            text="提示：升级 Portable 时请保留 data 目录；若端口被占用，请先停止旧的源码服务或另一个启动器。",
+            foreground="#666666",
+            wraplength=500,
+        )
+        hint.pack(fill="x", pady=(0, 12))
 
         buttons = ttk.Frame(frame)
         buttons.pack(fill="x", pady=(4, 0))
@@ -133,6 +144,7 @@ class Launcher:
         self.stop_button.pack(side="left", padx=8)
         self.open_button = ttk.Button(buttons, text="打开浏览器", command=self.open_browser, state=DISABLED)
         self.open_button.pack(side="left")
+        ttk.Button(buttons, text="打开数据目录", command=self.open_data_dir).pack(side="left", padx=8)
         ttk.Button(buttons, text="退出", command=self.close).pack(side="right")
 
     def _refresh_address(self) -> None:
@@ -147,7 +159,13 @@ class Launcher:
             return
         host = self._host()
         if not is_port_available(host, self.port):
-            messagebox.showerror(APP_NAME, f"端口 {self.port} 已被占用，请先关闭占用该端口的程序。")
+            messagebox.showerror(
+                APP_NAME,
+                f"端口 {self.port} 已被占用，服务没有启动。\n\n"
+                "请先关闭正在运行的我爱学习网页端、旧源码服务或另一个 Portable 启动器，"
+                "再点击“启动”。",
+            )
+            self.status.set("端口被占用")
             return
 
         env = os.environ.copy()
@@ -172,6 +190,7 @@ class Launcher:
             )
         except OSError as exc:
             messagebox.showerror(APP_NAME, f"启动失败：{exc}")
+            self.status.set("启动失败")
             return
 
         self.status.set("正在启动")
@@ -179,7 +198,11 @@ class Launcher:
         self.stop_button.config(state=NORMAL)
         self.open_button.config(state=NORMAL)
         threading.Thread(target=self._watch_process, daemon=True).start()
-        self.window.after(900, self.open_browser)
+        self.window.after(900, self._open_browser_if_running)
+
+    def _set_status_if_starting(self) -> None:
+        if self.status.get() == "正在启动":
+            self.status.set("运行中")
 
     def _watch_process(self) -> None:
         output: list[str] = []
@@ -192,8 +215,7 @@ class Launcher:
                     output = output[-12:]
             if self.process.poll() is not None:
                 break
-            if self.status.get() == "正在启动":
-                self.status.set("运行中")
+            self.window.after(0, self._set_status_if_starting)
             time.sleep(0.1)
         code = self.process.returncode
         self.window.after(0, lambda: self._process_stopped(code, output))
@@ -204,7 +226,8 @@ class Launcher:
         self.open_button.config(state=DISABLED)
         self.status.set("已停止" if code in (0, None) else f"异常退出（{code}）")
         if code not in (0, None):
-            messagebox.showerror(APP_NAME, "服务异常退出：\n" + "\n".join(output[-8:]))
+            details = "\n".join(output[-8:]) or "没有捕获到详细日志。"
+            messagebox.showerror(APP_NAME, "服务异常退出：\n" + details)
 
     def stop(self) -> None:
         if self.process and self.process.poll() is None:
@@ -222,6 +245,18 @@ class Launcher:
     def open_browser(self) -> None:
         self._refresh_address()
         webbrowser.open(self.address.get())
+
+    def _open_browser_if_running(self) -> None:
+        if self.process and self.process.poll() is None:
+            self.open_browser()
+
+    def open_data_dir(self) -> None:
+        path = data_dir(self.root_path)
+        path.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            os.startfile(path)  # type: ignore[attr-defined]
+        else:
+            webbrowser.open(path.as_uri())
 
     def close(self) -> None:
         self.stop()

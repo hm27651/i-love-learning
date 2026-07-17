@@ -19,7 +19,7 @@
       {% if readiness.active_gates.chapter %}<div class="readiness-item {{ 'ok' if readiness.chapter_ok }}"><i class="readiness-dot"></i><span>核心章节掌握度</span><b>{{ '达标' if readiness.chapter_ok else '补弱中' }}</b></div>{% endif %}
       {% if readiness.active_gates.task %}<div class="readiness-item {{ 'ok' if readiness.lab_ok }}"><i class="readiness-dot"></i><span>{{ project.practice_alias }}完成率</span><b>{{ readiness.lab_rate }}%</b></div>{% endif %}
     </div>
-  </section>{% else %}<section class="card"><h2>{{ project.name }}</h2><p class="muted">当前项目未启用准备度模块。进度页仍会持续统计覆盖率、掌握度和正确率。</p><a class="button secondary" href="{{ url_for('project_form',project_id=project.id) }}">调整项目模块</a></section>{% endif %}
+  </section>{% else %}<section class="card"><h2>{{ project.name }}</h2><p class="muted">当前项目未启用准备度模块。进度页仍会持续统计覆盖率、掌握度和正确率。</p><a class="button secondary" href="{{ url_for('projects.form',project_id=project.id) }}">调整项目模块</a></section>{% endif %}
 </div>
 
 <div class="grid cols-2 section-gap">

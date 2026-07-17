@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -102,6 +103,31 @@ def _backup_rows(backup_dir: Path, db_name: str):
     return rows
 
 
+def _runtime_mode(data_dir: Path, backup_dir: Path) -> str:
+    if data_dir.as_posix() == "/data" or backup_dir.as_posix() == "/backups":
+        return "Linux Docker"
+    if (data_dir.parent / "I-Love-Learning.exe").exists() or (data_dir.parent / "_internal").exists():
+        return "Windows Portable"
+    if os.environ.get("STUDY_DATA_DIR"):
+        return "源码调试（自定义数据目录）"
+    if os.environ.get("H3CSE_DATA_DIR"):
+        return "旧版兼容环境变量"
+    return "源码调试（默认兼容 data 目录）"
+
+
+def _data_locations(db_path: Path, backup_dir: Path) -> dict[str, str]:
+    data_dir = db_path.parent
+    return {
+        "runtime_mode": _runtime_mode(data_dir, backup_dir),
+        "data_dir": str(data_dir),
+        "database": str(db_path),
+        "uploads": str(data_dir / "uploads"),
+        "imports": str(data_dir / "imports"),
+        "exports": str(data_dir / "exports"),
+        "backups": str(backup_dir),
+    }
+
+
 def create_data_management_blueprint(db_provider, current_project_fn, backup_fn, backup_dir_fn, db_path_fn):
     blueprint = Blueprint("data_management", __name__)
 
@@ -117,6 +143,7 @@ def create_data_management_blueprint(db_provider, current_project_fn, backup_fn,
         return render_template(
             "data_management.html", project=project, rows=rows, from_date=from_date,
             to_date=to_date, mode=mode, backup_dir=str(backup_dir),
+            data_locations=_data_locations(Path(db_path_fn()), backup_dir),
             backups=_backup_rows(backup_dir, Path(db_path_fn()).name),
         )
 

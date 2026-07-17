@@ -14,7 +14,7 @@
     <label class="option"><input type="checkbox" name="module_tasks" value="1" {{ 'checked' if modules.get('tasks') }}><span><b>实践任务</b><small>实验、作品或实操记录</small></span></label>
     <label class="option"><input type="checkbox" name="module_readiness" value="1" {{ 'checked' if modules.get('readiness') }}><span><b>准备度</b><small>综合门槛判断</small></span></label>
   </div></div>
-  <div class="field full actions"><button>保存项目</button><a class="button secondary" href="{{ url_for('projects') }}">取消</a></div>
+  <div class="field full actions"><button>保存项目</button><a class="button secondary" href="{{ url_for('projects.index') }}">取消</a></div>
 </form>
 {% endblock %}{% block scripts %}<script>
 {% if not item %}const type=document.querySelector('#project-type'),defaults={practice:{mock:0,plan:0,tasks:0,readiness:0},exam_prep:{mock:1,plan:1,tasks:0,readiness:1},practical_certification:{mock:1,plan:1,tasks:1,readiness:1}};type.addEventListener('change',()=>Object.entries(defaults[type.value]).forEach(([key,value])=>document.querySelector(`[name="module_${key}"]`).checked=Boolean(value)));{% endif %}

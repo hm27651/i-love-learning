@@ -565,10 +565,34 @@ mark { padding: 0 2px; border-radius: 3px; background: var(--warn-soft); color: 
 .candidate-item { padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
 .candidate-item.has-error { border-color: var(--danger); background: var(--danger-soft); }
 .project-card.archived { opacity: .72; }
+.data-location-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.data-location-grid > div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.data-location-grid small {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-weight: 700;
+}
+.data-location-grid code {
+  display: block;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
 
 @media (max-width: 760px) {
   .mobile-topbar { gap: 8px; }
   .mobile-brand b { display: none; }
   .mobile-project-switcher { display: block; }
   .candidate-item .split { align-items: flex-start; }
+  .data-location-grid { grid-template-columns: 1fr; }
 }

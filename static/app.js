@@ -39,10 +39,21 @@
     document.querySelectorAll('[data-mobile-filter]').forEach(details => details.removeAttribute('open'));
   }
 
+  function syncSidebarToggleState() {
+    const collapsed = root.classList.contains('sidebar-collapsed');
+    document.querySelectorAll('[data-sidebar-toggle]').forEach(button => {
+      button.setAttribute('aria-expanded', String(!collapsed));
+      if (button.classList.contains('sidebar-toggle')) {
+        button.setAttribute('aria-label', collapsed ? '展开侧栏' : '收起侧栏');
+      }
+    });
+  }
   document.querySelectorAll('[data-sidebar-toggle]').forEach(button => button.addEventListener('click', () => {
     root.classList.toggle('sidebar-collapsed');
     localStorage.setItem('study-sidebar', root.classList.contains('sidebar-collapsed') ? 'collapsed' : 'expanded');
+    syncSidebarToggleState();
   }));
+  syncSidebarToggleState();
 
   const sheet = document.querySelector('.more-sheet');
   const backdrop = document.querySelector('.sheet-backdrop');

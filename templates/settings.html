@@ -1,5 +1,5 @@
 {% extends 'base.html' %}{% block title %}设置 · I Love Learning{% endblock %}{% block content %}
-<div class="page-head"><div><h1>设置与数据</h1><div class="lead">当前项目：{{ project.name }}。准备度阈值是个人判断，不代表任何官方标准。</div></div><a class="button secondary" href="{{ url_for('project_form',project_id=project.id) }}">项目与模块设置</a></div>
+<div class="page-head"><div><h1>设置与数据</h1><div class="lead">当前项目：{{ project.name }}。准备度阈值是个人判断，不代表任何官方标准。</div></div><a class="button secondary" href="{{ url_for('projects.form',project_id=project.id) }}">项目与模块设置</a></div>
 <div class="grid cols-2"><form method="post" class="card form-grid">
   <div class="field"><label>模拟成绩门槛（%）</label><input type="number" name="mock_threshold" value="{{ cfg.mock_threshold }}"></div>
   <div class="field"><label>核心章节门槛（%）</label><input type="number" name="chapter_threshold" value="{{ cfg.chapter_threshold }}"></div>
