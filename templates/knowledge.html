@@ -23,8 +23,8 @@
         </button>
         <div class="knowledge-node-meta">
           <span class="structure-count">{{ s.chapter_count }} 章</span><span class="structure-count">{{ s.point_count }} 点</span>
-          <a class="question-count {{ 'is-empty' if not s.question_count }}" href="{{ url_for('questions',subject_id=s.id) }}" title="查看本科目题目">{{ s.question_count }} 题</a>
-          <button class="knowledge-more" type="button" aria-label="编辑科目 {{ s.name }}" data-node-action="edit" data-kind="subject" data-node-id="{{ s.id }}" data-node-name="{{ s.name }}" data-exam-code="{{ s.exam_code or '' }}" data-impact-url="{{ url_for('knowledge_delete_impact',kind='subject',node_id=s.id) }}">•••</button>
+          <a class="question-count {{ 'is-empty' if not s.question_count }}" href="{{ url_for('questions.index',subject_id=s.id) }}" title="查看本科目题目">{{ s.question_count }} 题</a>
+          <button class="knowledge-more" type="button" aria-label="编辑科目 {{ s.name }}" data-node-action="edit" data-kind="subject" data-node-id="{{ s.id }}" data-node-name="{{ s.name }}" data-exam-code="{{ s.exam_code or '' }}" data-impact-url="{{ url_for('knowledge.delete_impact',kind='subject',node_id=s.id) }}">•••</button>
         </div>
       </div>
       <div class="knowledge-branch" id="subject-branch-{{ s.id }}" data-tree-branch aria-hidden="true" inert><div class="knowledge-branch-inner">
@@ -39,8 +39,8 @@
               </button>
               <div class="knowledge-node-meta">
                 {% if c.is_core %}<span class="core-badge">核心</span>{% endif %}<span class="structure-count">{{ c.point_count }} 点</span>
-                <a class="question-count {{ 'is-empty' if not c.question_count }}" href="{{ url_for('questions',chapter_id=c.id) }}" title="查看本章节题目">{{ c.question_count }} 题</a>
-                <button class="knowledge-more" type="button" aria-label="编辑章节 {{ c.name }}" data-node-action="edit" data-kind="chapter" data-node-id="{{ c.id }}" data-node-name="{{ c.name }}" data-parent-name="{{ s.name }}" data-is-core="{{ 1 if c.is_core else 0 }}" data-impact-url="{{ url_for('knowledge_delete_impact',kind='chapter',node_id=c.id) }}">•••</button>
+                <a class="question-count {{ 'is-empty' if not c.question_count }}" href="{{ url_for('questions.index',chapter_id=c.id) }}" title="查看本章节题目">{{ c.question_count }} 题</a>
+                <button class="knowledge-more" type="button" aria-label="编辑章节 {{ c.name }}" data-node-action="edit" data-kind="chapter" data-node-id="{{ c.id }}" data-node-name="{{ c.name }}" data-parent-name="{{ s.name }}" data-is-core="{{ 1 if c.is_core else 0 }}" data-impact-url="{{ url_for('knowledge.delete_impact',kind='chapter',node_id=c.id) }}">•••</button>
               </div>
             </div>
             <div class="knowledge-branch" id="chapter-branch-{{ c.id }}" data-tree-branch aria-hidden="true" inert><div class="knowledge-branch-inner">
@@ -50,8 +50,8 @@
                 <div class="knowledge-point" id="knowledge-point-{{ p.id }}" data-tree-node data-kind="point" data-tree-key="point:{{ p.id }}" data-parent-key="chapter:{{ c.id }}" data-own-search="{{ p.name }}">
                   <div class="knowledge-point-name"><span class="knowledge-point-dot" aria-hidden="true"></span><strong data-node-label data-source-label="{{ p.name }}">{{ p.name }}</strong></div>
                   <div class="knowledge-node-meta">
-                    <a class="question-count {{ 'is-empty' if not p.question_count }}" href="{{ url_for('questions',knowledge_point_id=p.id) }}" title="查看本知识点题目">{{ p.question_count }} 题</a>
-                    <button class="knowledge-more" type="button" aria-label="编辑知识点 {{ p.name }}" data-node-action="edit" data-kind="point" data-node-id="{{ p.id }}" data-node-name="{{ p.name }}" data-parent-name="{{ s.name }} / {{ c.name }}" data-impact-url="{{ url_for('knowledge_delete_impact',kind='point',node_id=p.id) }}">•••</button>
+                    <a class="question-count {{ 'is-empty' if not p.question_count }}" href="{{ url_for('questions.index',knowledge_point_id=p.id) }}" title="查看本知识点题目">{{ p.question_count }} 题</a>
+                    <button class="knowledge-more" type="button" aria-label="编辑知识点 {{ p.name }}" data-node-action="edit" data-kind="point" data-node-id="{{ p.id }}" data-node-name="{{ p.name }}" data-parent-name="{{ s.name }} / {{ c.name }}" data-impact-url="{{ url_for('knowledge.delete_impact',kind='point',node_id=p.id) }}">•••</button>
                   </div>
                 </div>
                 {% else %}<div class="knowledge-empty-branch">暂无知识点，可从右上角添加。</div>{% endfor %}
@@ -68,7 +68,7 @@
 </section>
 
 <dialog class="knowledge-node-dialog" data-knowledge-node-dialog>
-  <form method="post" class="knowledge-node-form" data-create-url="{{ url_for('knowledge') }}" data-update-url="{{ url_for('knowledge_rename') }}">
+  <form method="post" class="knowledge-node-form" data-create-url="{{ url_for('knowledge.index') }}" data-update-url="{{ url_for('knowledge.rename') }}">
     <input type="hidden" name="kind"><input type="hidden" name="id"><input type="hidden" name="subject_id"><input type="hidden" name="chapter_id">
     <div class="dialog-head"><div><div class="eyebrow" data-node-dialog-eyebrow>节点详情</div><h2 data-node-dialog-title>编辑节点</h2></div><button class="icon-button" type="button" data-node-dialog-close aria-label="关闭">×</button></div>
     <div class="knowledge-node-dialog-body">
@@ -82,7 +82,7 @@
 </dialog>
 
 <dialog class="knowledge-delete-dialog" data-knowledge-delete-dialog>
-  <form method="post" action="{{ url_for('knowledge_delete') }}" class="knowledge-delete-form">
+  <form method="post" action="{{ url_for('knowledge.delete') }}" class="knowledge-delete-form">
     <input type="hidden" name="kind"><input type="hidden" name="node_id">
     <div class="dialog-head"><div><div class="eyebrow">安全删除</div><h2 data-delete-title>删除知识节点</h2></div><button class="icon-button" type="button" data-delete-close aria-label="关闭">×</button></div>
     <div class="danger-note" data-delete-loading>正在分析关联内容…</div>

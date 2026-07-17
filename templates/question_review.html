@@ -2,7 +2,7 @@
 <div class="review-workspace">
   <aside class="review-rail">
     <div class="review-rail-head"><div class="eyebrow">审核队列</div><b>当前页 {{ queue|length }} 道</b><div class="muted">方向键切换题目</div></div>
-    {% for item in queue %}<a class="review-rail-item {{ 'active' if item.id==question.id }}" href="{{ url_for('question_review',question_id=item.id,**request.args) }}"><b>#{{ item.id }} · {{ item.stem|truncate(46) }}</b><small>{{ TYPE_NAMES[item.type] }} · {{ STATUS_NAMES[item.status] }} · {{ item.chapter_name }}</small></a>{% endfor %}
+    {% for item in queue %}<a class="review-rail-item {{ 'active' if item.id==question.id }}" href="{{ url_for('questions.review',question_id=item.id,**request.args) }}"><b>#{{ item.id }} · {{ item.stem|truncate(46) }}</b><small>{{ TYPE_NAMES[item.type] }} · {{ STATUS_NAMES[item.status] }} · {{ item.chapter_name }}</small></a>{% endfor %}
   </aside>
   <article class="review-detail">
     <div class="review-detail-head"><div><div class="eyebrow">题目 {{ position+1 }} / {{ queue|length }}</div><h1>审核题目 #{{ question.id }}</h1><div class="lead">核对协议原理、答案、Comware 命令与版本说明。</div></div><span class="badge {{ question.status }}">{{ STATUS_NAMES[question.status] }}</span></div>
@@ -18,7 +18,7 @@
   </article>
 </div>
 <div class="review-toolbar">
-  <div class="actions">{% if previous_id %}<a class="button secondary" data-review-prev href="{{ url_for('question_review',question_id=previous_id,**request.args) }}">← 上一题</a>{% else %}<a class="button secondary" href="{{ url_for('questions',**request.args) }}">返回列表</a>{% endif %}{% if next_id %}<a class="button secondary" data-review-next href="{{ url_for('question_review',question_id=next_id,**request.args) }}">下一题 →</a>{% endif %}</div>
-  <div class="actions"><a class="button ghost" href="{{ url_for('question_form',question_id=question.id) }}">编辑题目</a><form method="post"><input type="hidden" name="next_id" value="{{ next_id or '' }}"><button class="danger" name="action" value="archived" data-review-archive>归档 <small>A</small></button></form><form method="post"><input type="hidden" name="next_id" value="{{ next_id or '' }}"><button name="action" value="verified" data-review-verify>核验并继续 <small>V</small></button></form></div>
+  <div class="actions">{% if previous_id %}<a class="button secondary" data-review-prev href="{{ url_for('questions.review',question_id=previous_id,**request.args) }}">← 上一题</a>{% else %}<a class="button secondary" href="{{ url_for('questions.index',**request.args) }}">返回列表</a>{% endif %}{% if next_id %}<a class="button secondary" data-review-next href="{{ url_for('questions.review',question_id=next_id,**request.args) }}">下一题 →</a>{% endif %}</div>
+  <div class="actions"><a class="button ghost" href="{{ url_for('questions.form',question_id=question.id) }}">编辑题目</a><form method="post"><input type="hidden" name="next_id" value="{{ next_id or '' }}"><button class="danger" name="action" value="archived" data-review-archive>归档 <small>A</small></button></form><form method="post"><input type="hidden" name="next_id" value="{{ next_id or '' }}"><button name="action" value="verified" data-review-verify>核验并继续 <small>V</small></button></form></div>
 </div>
 {% endblock %}

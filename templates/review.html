@@ -1,12 +1,12 @@
 {% extends 'base.html' %}{% block title %}错题复习 · I Love Learning{% endblock %}{% block content %}
 <div class="page-head"><div><div class="eyebrow">复习队列</div><h1>把该复习的题清掉</h1><div class="lead">到期题优先，其次是反复答错的题；你仍可展开高级筛选自由调整。</div></div></div>
 {% if active_session %}
-<section class="card active-session-card"><div><div class="eyebrow">{{ '已暂停' if active_session.row.status=='paused' else '进行中' }}</div><h2>你有一组尚未结束的错题复习</h2><p class="muted">已推进 {{ active_session.done }} / {{ active_session.total }} 题。先继续或终止它，再建立新的复习队列。</p></div><div class="actions"><a class="button" href="{{ url_for('practice_run',session_id=active_session.row.id) }}">继续复习</a><button class="danger" type="button" data-terminate-open="#review-setup-terminate">终止旧会话</button></div></section>
-<dialog class="session-dialog" id="review-setup-terminate" data-terminate-dialog><form method="post" action="{{ url_for('practice_terminate',session_id=active_session.row.id) }}"><h2>终止这组错题复习？</h2><p>已完成的答题与掌握度记录会保留，剩余题目不再继续。</p><input type="hidden" name="takeover" value="1"><div class="dialog-actions"><button class="secondary" type="button" data-terminate-close>取消</button><button class="danger">确认终止</button></div></form></dialog>
+<section class="card active-session-card"><div><div class="eyebrow">{{ '已暂停' if active_session.row.status=='paused' else '进行中' }}</div><h2>你有一组尚未结束的错题复习</h2><p class="muted">已推进 {{ active_session.done }} / {{ active_session.total }} 题。先继续或终止它，再建立新的复习队列。</p></div><div class="actions"><a class="button" href="{{ url_for('practice.run',session_id=active_session.row.id) }}">继续复习</a><button class="danger" type="button" data-terminate-open="#review-setup-terminate">终止旧会话</button></div></section>
+<dialog class="session-dialog" id="review-setup-terminate" data-terminate-dialog><form method="post" action="{{ url_for('practice.terminate',session_id=active_session.row.id) }}"><h2>终止这组错题复习？</h2><p>已完成的答题与掌握度记录会保留，剩余题目不再继续。</p><input type="hidden" name="takeover" value="1"><div class="dialog-actions"><button class="secondary" type="button" data-terminate-close>取消</button><button class="danger">确认终止</button></div></form></dialog>
 {% else %}
 <div class="review-summary">
-  <a class="card review-stat" href="{{ url_for('review',filter='due') }}"><span class="quick-icon">今</span><span><strong>{{ counts.due }}</strong><small class="muted">今日到期</small></span></a>
-  <a class="card review-stat" href="{{ url_for('review',filter='errors') }}"><span class="quick-icon">错</span><span><strong>{{ counts.errors }}</strong><small class="muted">有错误记录</small></span></a>
+  <a class="card review-stat" href="{{ url_for('practice.review',filter='due') }}"><span class="quick-icon">今</span><span><strong>{{ counts.due }}</strong><small class="muted">今日到期</small></span></a>
+  <a class="card review-stat" href="{{ url_for('practice.review',filter='errors') }}"><span class="quick-icon">错</span><span><strong>{{ counts.errors }}</strong><small class="muted">有错误记录</small></span></a>
 </div>
 <details class="card advanced-filter" {% if request.args.get('chapter_id') or filter!='due' %}open{% endif %}>
   <summary>高级筛选 · 当前显示 {{ {'due':'今日到期','errors':'全部错题','all':'全部已练习'}[filter] }}</summary>
@@ -24,7 +24,7 @@
     {% for q in questions %}<label class="review-card"><input type="checkbox" name="question_id" value="{{ q.id }}" checked><div><b>#{{ q.id }} · {{ q.stem|truncate(100) }}</b><p>{{ q.subject_name }} / {{ q.chapter_name }} · 掌握 {{ q.mastery_level }}/4</p></div><div class="review-priority">{% if q.due_date and q.due_date<=today %}<span class="badge draft">今日到期</span>{% endif %}{% if q.error_count>=3 %}<span class="badge archived">反复错 {{ q.error_count }} 次</span>{% elif q.error_count %}<span class="badge">错 {{ q.error_count }} 次</span>{% endif %}</div></label>{% endfor %}
   </div>
   <div class="queue-action"><span>先完成一小组，也比让队列继续堆积更好。</span><button type="submit">开始复习所选题目 →</button></div>
-  {% else %}<section class="card empty"><div class="quick-icon" style="margin:0 auto 14px">✓</div><h2>当前队列已清空</h2><p>可以继续新章节，或切换高级筛选回看全部错题。</p><a class="button" href="{{ url_for('practice') }}">去章节练习</a></section>{% endif %}
+  {% else %}<section class="card empty"><div class="quick-icon" style="margin:0 auto 14px">✓</div><h2>当前队列已清空</h2><p>可以继续新章节，或切换高级筛选回看全部错题。</p><a class="button" href="{{ url_for('practice.index') }}">去章节练习</a></section>{% endif %}
 </form>
 {% endif %}
 {% endblock %}

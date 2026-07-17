@@ -24,17 +24,17 @@
 
 <div class="grid cols-2 section-gap">
   {% if current_modules.mock %}<section class="card">
-    <div class="split"><h2>科目掌握度</h2><a href="{{ url_for('practice') }}">选择章节练习</a></div>
+    <div class="split"><h2>科目掌握度</h2><a href="{{ url_for('practice.index') }}">选择章节练习</a></div>
     <div class="subject-list">{% for s in subjects %}<div class="subject-progress"><div><b>{{ s.exam_code or s.name }}</b><div class="muted">覆盖 {{ s.attempted_count }}/{{ s.verified_count }} 题</div></div><div><div class="progress"><i style="width:{{ s.mastery }}%"></i></div><small class="muted">覆盖率 {{ s.coverage }}%</small></div><b>{{ s.mastery }}%</b></div>{% else %}<div class="empty">还没有科目数据。</div>{% endfor %}</div>
   </section>{% endif %}
   <section class="card">
-    <div class="split"><h2>模拟考试历史</h2><a href="{{ url_for('mock_setup') }}">开始模拟</a></div>
+    <div class="split"><h2>模拟考试历史</h2><a href="{{ url_for('mock.setup') }}">开始模拟</a></div>
     {% for m in mocks %}<p class="split"><span>{{ m.submitted_at[:16] }} {% if m.qualifying %}<span class="badge verified">有效</span>{% endif %}</span><b class="{{ 'good' if m.score >= readiness.settings.mock_threshold|float else 'warn' }}">{{ m.score }}%</b></p>{% else %}<div class="empty">尚无模拟成绩。</div>{% endfor %}
   </section>
 </div>
 
 <section class="card section-gap">
-  <div class="split"><div><h2>章节明细</h2><div class="muted">覆盖率、掌握度和近期正确率分开看，避免“做过”被误认为“掌握”。</div></div><a href="{{ url_for('knowledge') }}">管理核心章节</a></div>
+  <div class="split"><div><h2>章节明细</h2><div class="muted">覆盖率、掌握度和近期正确率分开看，避免“做过”被误认为“掌握”。</div></div><a href="{{ url_for('knowledge.index') }}">管理核心章节</a></div>
   {% for c in chapters %}<div class="chapter-row"><div><b>{{ c.name }}</b><div class="muted">{{ c.subject_name }}{% if c.is_core %} · 核心{% endif %}</div></div><div><small>覆盖率 {{ c.coverage }}%</small><div class="progress"><i style="width:{{ c.coverage }}%"></i></div></div><div><small>掌握度 {{ c.mastery }}%</small><div class="progress"><i style="width:{{ c.mastery }}%"></i></div></div><div><small>近期正确率</small><br><b>{{ c.accuracy }}%</b></div></div>{% else %}<div class="empty">请先建立知识树。</div>{% endfor %}
 </section>
 {% endblock %}

@@ -1,8 +1,8 @@
 {% extends 'base.html' %}{% block title %}章节练习 · I Love Learning{% endblock %}{% block content %}
 <div class="page-head"><div><div class="eyebrow">自由练习</div><h1>选择今天要练的范围</h1><div class="lead">只使用已核验题目；复习提醒不会打断你推进新章节。</div></div></div>
 {% if active_session %}
-<section class="card active-session-card"><div><div class="eyebrow">{{ '已暂停' if active_session.row.status=='paused' else '进行中' }}</div><h2>你有一组尚未结束的章节练习</h2><p class="muted">已推进 {{ active_session.done }} / {{ active_session.total }} 题。继续后会回到保存的题目和答案状态。</p></div><div class="actions"><a class="button" href="{{ url_for('practice_run',session_id=active_session.row.id) }}">继续练习</a><button class="danger" type="button" data-terminate-open="#practice-setup-terminate">终止旧会话</button></div></section>
-<dialog class="session-dialog" id="practice-setup-terminate" data-terminate-dialog><form method="post" action="{{ url_for('practice_terminate',session_id=active_session.row.id) }}"><h2>终止这组章节练习？</h2><p>已完成的答题与掌握度记录会保留，剩余题目不再继续。</p><input type="hidden" name="takeover" value="1"><div class="dialog-actions"><button class="secondary" type="button" data-terminate-close>取消</button><button class="danger">确认终止</button></div></form></dialog>
+<section class="card active-session-card"><div><div class="eyebrow">{{ '已暂停' if active_session.row.status=='paused' else '进行中' }}</div><h2>你有一组尚未结束的章节练习</h2><p class="muted">已推进 {{ active_session.done }} / {{ active_session.total }} 题。继续后会回到保存的题目和答案状态。</p></div><div class="actions"><a class="button" href="{{ url_for('practice.run',session_id=active_session.row.id) }}">继续练习</a><button class="danger" type="button" data-terminate-open="#practice-setup-terminate">终止旧会话</button></div></section>
+<dialog class="session-dialog" id="practice-setup-terminate" data-terminate-dialog><form method="post" action="{{ url_for('practice.terminate',session_id=active_session.row.id) }}"><h2>终止这组章节练习？</h2><p>已完成的答题与掌握度记录会保留，剩余题目不再继续。</p><input type="hidden" name="takeover" value="1"><div class="dialog-actions"><button class="secondary" type="button" data-terminate-close>取消</button><button class="danger">确认终止</button></div></form></dialog>
 {% else %}
 <div class="grid cols-3" style="margin-bottom:18px">
   <button type="button" class="card quick-card" data-count-preset="10"><span class="quick-icon">10</span><span><b>轻量热身</b><small>约 8–12 分钟</small></span></button>
@@ -20,9 +20,9 @@
     <label class="option practice-mode"><input type="radio" name="selection_mode" value="all"><span><b>全部匹配题目</b><small>加入当前筛选下的全部已核验题目</small></span></label>
   </div></div>
   <div class="field" id="practice-count-field"><label>指定题量</label><input id="practice-count" type="number" name="count" min="1" max="100" value="10"><small>选择“全部匹配题目”后不再限制数量。</small></div>
-  <div class="field"><label>匹配结果</label><div class="match-count" id="practice-match-count" data-count-url="{{ url_for('practice_match_count') }}">当前匹配 <strong>—</strong> 道已核验题</div><small class="muted">数量会随科目、章节、知识点和题型自动更新。</small></div>
+  <div class="field"><label>匹配结果</label><div class="match-count" id="practice-match-count" data-count-url="{{ url_for('practice.practice_match_count') }}">当前匹配 <strong>—</strong> 道已核验题</div><small class="muted">数量会随科目、章节、知识点和题型自动更新。</small></div>
   <div class="field full"><div class="danger-note">题目会随机排列，多选题必须完整匹配才判为正确。</div></div>
-  <div class="field full actions"><button type="submit">生成练习并开始</button><a class="button secondary" href="{{ url_for('review') }}">改做今日复习</a></div>
+  <div class="field full actions"><button type="submit">生成练习并开始</button><a class="button secondary" href="{{ url_for('practice.review') }}">改做今日复习</a></div>
 </form>
 {% endif %}
 {% endblock %}{% block scripts %}<script>

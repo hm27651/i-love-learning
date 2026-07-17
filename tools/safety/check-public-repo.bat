@@ -11,7 +11,7 @@ if errorlevel 1 goto :failed
 
 echo.
 echo [2/3] Checking Python syntax...
-"%PYTHON%" -m py_compile app.py migrations.py import_service.py knowledge_service.py
+"%PYTHON%" -m py_compile app.py migrations.py import_service.py knowledge_service.py transfer_service.py services\core\common_service.py services\core\project_service.py services\core\session_service.py services\core\stats_service.py services\core\storage_service.py services\questions\question_service.py services\imports\import_service.py services\knowledge\knowledge_common.py services\knowledge\knowledge_duplicates.py services\knowledge\knowledge_delete_service.py services\transfer\transfer_common.py services\transfer\export_service.py services\transfer\share_package_service.py
 if errorlevel 1 goto :failed
 
 echo.

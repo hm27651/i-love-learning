@@ -5,18 +5,10 @@ from datetime import date
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, session, url_for
 
-from app import (
-    DATA_DIR,
-    PROJECT_MODULE_DEFAULTS,
-    backup_data_snapshot,
-    create_project,
-    current_project,
-    db,
-    module_enabled,
-    now_iso,
-    project_modules,
-    seed_project_weeks,
-)
+from app import DATA_DIR, backup_data_snapshot, db
+from services.core.common_service import now_iso
+from migrations import PROJECT_MODULE_DEFAULTS, create_project
+from services.core.project_service import current_project, module_enabled, project_modules, seed_project_weeks
 
 
 bp = Blueprint("projects", __name__)

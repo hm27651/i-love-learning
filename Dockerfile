@@ -17,7 +17,9 @@ RUN groupadd --gid 10001 study \
 COPY requirements.txt ./
 RUN python -m pip install --no-cache-dir --requirement requirements.txt
 
-COPY --chown=10001:10001 app.py app_runtime.py data_management.py import_service.py knowledge_service.py migrations.py transfer_service.py ./
+COPY --chown=10001:10001 *.py ./
+COPY --chown=10001:10001 routes ./routes
+COPY --chown=10001:10001 services ./services
 COPY --chown=10001:10001 templates ./templates
 COPY --chown=10001:10001 static ./static
 

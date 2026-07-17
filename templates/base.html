@@ -1,4 +1,4 @@
-{% macro nav_icon(name) -%}
+﻿{% macro nav_icon(name) -%}
   {% set icons = {
     'home':'M3 11.5 12 4l9 7.5M5 10.5V20h5v-5h4v5h5v-9.5',
     'practice':'M7 4h10l2 4v12H5V8l2-4zM8 9h8M8 13h8M8 17h5',
@@ -52,21 +52,21 @@
         <div class="nav-group">
           <div class="nav-label">学习</div>
           <a class="nav-item {{ 'active' if request.endpoint=='dashboard' }}" href="{{ url_for('dashboard') }}" data-label="今天" aria-label="今天"><span class="nav-icon">{{ nav_icon('home') }}</span><span>今天</span></a>
-          <a class="nav-item {{ 'active' if request.endpoint in ['practice','practice_run'] }}" href="{{ url_for('practice') }}" data-label="章节练习" aria-label="章节练习"><span class="nav-icon">{{ nav_icon('practice') }}</span><span>章节练习</span></a>
-          <a class="nav-item {{ 'active' if request.endpoint=='review' }}" href="{{ url_for('review') }}" data-label="错题复习{% if global_due_count %} · {{ global_due_count }}{% endif %}" aria-label="错题复习{% if global_due_count %}，{{ global_due_count }} 个到期{% endif %}"><span class="nav-icon">{{ nav_icon('review') }}</span><span>错题复习{% if global_due_count %} · {{ global_due_count }}{% endif %}</span></a>
-          {% if current_modules.mock %}<a class="nav-item {{ 'active' if request.endpoint in ['mock_setup','mock_exam'] }}" href="{{ url_for('mock_setup') }}" data-label="模拟考试" aria-label="模拟考试"><span class="nav-icon">{{ nav_icon('mock') }}</span><span>模拟考试</span></a>{% endif %}
+          <a class="nav-item {{ 'active' if request.endpoint in ['practice.index','practice.run'] }}" href="{{ url_for('practice.index') }}" data-label="章节练习" aria-label="章节练习"><span class="nav-icon">{{ nav_icon('practice') }}</span><span>章节练习</span></a>
+          <a class="nav-item {{ 'active' if request.endpoint=='practice.review' }}" href="{{ url_for('practice.review') }}" data-label="错题复习{% if global_due_count %} · {{ global_due_count }}{% endif %}" aria-label="错题复习{% if global_due_count %}，{{ global_due_count }} 个到期{% endif %}"><span class="nav-icon">{{ nav_icon('review') }}</span><span>错题复习{% if global_due_count %} · {{ global_due_count }}{% endif %}</span></a>
+          {% if current_modules.mock %}<a class="nav-item {{ 'active' if request.endpoint in ['mock.setup','mock.exam'] }}" href="{{ url_for('mock.setup') }}" data-label="模拟考试" aria-label="模拟考试"><span class="nav-icon">{{ nav_icon('mock') }}</span><span>模拟考试</span></a>{% endif %}
           <a class="nav-item {{ 'active' if request.endpoint=='progress' }}" href="{{ url_for('progress') }}" data-label="学习进度" aria-label="学习进度"><span class="nav-icon">{{ nav_icon('progress') }}</span><span>学习进度</span></a>
         </div>
         {% if current_modules.tasks or current_modules.plan %}<div class="nav-group">
           <div class="nav-label">实践</div>
-          {% if current_modules.tasks %}<a class="nav-item {{ 'active' if request.endpoint in ['labs','lab_form'] }}" href="{{ url_for('labs') }}" data-label="{{ current_project.practice_alias }}" aria-label="{{ current_project.practice_alias }}"><span class="nav-icon">{{ nav_icon('lab') }}</span><span>{{ current_project.practice_alias }}</span></a>{% endif %}
-          {% if current_modules.plan %}<a class="nav-item {{ 'active' if request.endpoint=='plans' }}" href="{{ url_for('plans') }}" data-label="学习计划" aria-label="学习计划"><span class="nav-icon">{{ nav_icon('plan') }}</span><span>学习计划</span></a>{% endif %}
+          {% if current_modules.tasks %}<a class="nav-item {{ 'active' if request.endpoint in ['labs.index','labs.form'] }}" href="{{ url_for('labs.index') }}" data-label="{{ current_project.practice_alias }}" aria-label="{{ current_project.practice_alias }}"><span class="nav-icon">{{ nav_icon('lab') }}</span><span>{{ current_project.practice_alias }}</span></a>{% endif %}
+          {% if current_modules.plan %}<a class="nav-item {{ 'active' if request.endpoint=='plans.index' }}" href="{{ url_for('plans.index') }}" data-label="学习计划" aria-label="学习计划"><span class="nav-icon">{{ nav_icon('plan') }}</span><span>学习计划</span></a>{% endif %}
         </div>{% endif %}
         <div class="nav-group">
           <div class="nav-label">管理</div>
-          <a class="nav-item {{ 'active' if request.endpoint in ['questions','question_form','question_review'] }}" href="{{ url_for('questions') }}" data-label="题库" aria-label="题库"><span class="nav-icon">{{ nav_icon('questions') }}</span><span>题库</span></a>
-          <a class="nav-item {{ 'active' if request.endpoint in ['knowledge','toggle_core','knowledge_rename'] }}" href="{{ url_for('knowledge') }}" data-label="知识树" aria-label="知识树"><span class="nav-icon">{{ nav_icon('tree') }}</span><span>知识树</span></a>
-          <a class="nav-item {{ 'active' if request.endpoint in ['imports_center','import_detail','export_create','export_download'] }}" href="{{ url_for('imports_center') }}" data-label="导入与导出" aria-label="导入与导出"><span class="nav-icon">{{ nav_icon('transfer') }}</span><span>导入与导出</span></a>
+          <a class="nav-item {{ 'active' if request.endpoint in ['questions.index','questions.form','questions.review'] }}" href="{{ url_for('questions.index') }}" data-label="题库" aria-label="题库"><span class="nav-icon">{{ nav_icon('questions') }}</span><span>题库</span></a>
+          <a class="nav-item {{ 'active' if request.endpoint in ['knowledge.index','knowledge.toggle_core','knowledge.rename'] }}" href="{{ url_for('knowledge.index') }}" data-label="知识树" aria-label="知识树"><span class="nav-icon">{{ nav_icon('tree') }}</span><span>知识树</span></a>
+          <a class="nav-item {{ 'active' if request.endpoint in ['imports.imports_center','imports.import_detail','exports.export_create','exports.export_download'] }}" href="{{ url_for('imports.imports_center') }}" data-label="导入与导出" aria-label="导入与导出"><span class="nav-icon">{{ nav_icon('transfer') }}</span><span>导入与导出</span></a>
           <a class="nav-item {{ 'active' if request.endpoint in ['projects.index','projects.form'] }}" href="{{ url_for('projects.index') }}" data-label="项目管理" aria-label="项目管理"><span class="nav-icon">{{ nav_icon('projects') }}</span><span>项目管理</span></a>
           <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('data_management.') }}" href="{{ url_for('data_management.index') }}" data-label="数据管理" aria-label="数据管理"><span class="nav-icon">{{ nav_icon('data') }}</span><span>数据管理</span></a>
           <a class="nav-item {{ 'active' if request.endpoint=='app_settings' }}" href="{{ url_for('app_settings') }}" data-label="设置" aria-label="设置"><span class="nav-icon">{{ nav_icon('settings') }}</span><span>设置</span></a>
@@ -94,8 +94,8 @@
 
   <nav class="mobile-nav" aria-label="手机导航">
     <a class="{{ 'active' if request.endpoint=='dashboard' }}" href="{{ url_for('dashboard') }}"><span>今</span><small>今天</small></a>
-    <a class="{{ 'active' if request.endpoint in ['practice','practice_run'] }}" href="{{ url_for('practice') }}"><span>练</span><small>练习</small></a>
-    <a class="{{ 'active' if request.endpoint=='review' }}" href="{{ url_for('review') }}"><span>复</span><small>复习</small></a>
+    <a class="{{ 'active' if request.endpoint in ['practice.index','practice.run'] }}" href="{{ url_for('practice.index') }}"><span>练</span><small>练习</small></a>
+    <a class="{{ 'active' if request.endpoint=='practice.review' }}" href="{{ url_for('practice.review') }}"><span>复</span><small>复习</small></a>
     <a class="{{ 'active' if request.endpoint=='progress' }}" href="{{ url_for('progress') }}"><span>析</span><small>进度</small></a>
     <button type="button" data-more-toggle><span>•••</span><small>更多</small></button>
   </nav>
@@ -104,9 +104,9 @@
   <aside class="more-sheet" aria-hidden="true" aria-label="更多功能">
     <div class="sheet-handle"></div><div class="sheet-title"><b>更多功能</b><button class="icon-button" data-more-close aria-label="关闭">×</button></div>
     <div class="more-grid">
-      {% if current_modules.mock %}<a href="{{ url_for('mock_setup') }}"><span>模</span>模拟考试</a>{% endif %}{% if current_modules.tasks %}<a href="{{ url_for('labs') }}"><span>验</span>{{ current_project.practice_alias }}</a>{% endif %}
-      {% if current_modules.plan %}<a href="{{ url_for('plans') }}"><span>周</span>学习计划</a>{% endif %}<a href="{{ url_for('questions') }}"><span>题</span>题库管理</a>
-      <a href="{{ url_for('knowledge') }}"><span>树</span>知识树</a><a href="{{ url_for('imports_center') }}"><span>传</span>导入与导出</a>
+      {% if current_modules.mock %}<a href="{{ url_for('mock.setup') }}"><span>模</span>模拟考试</a>{% endif %}{% if current_modules.tasks %}<a href="{{ url_for('labs.index') }}"><span>验</span>{{ current_project.practice_alias }}</a>{% endif %}
+      {% if current_modules.plan %}<a href="{{ url_for('plans.index') }}"><span>周</span>学习计划</a>{% endif %}<a href="{{ url_for('questions.index') }}"><span>题</span>题库管理</a>
+      <a href="{{ url_for('knowledge.index') }}"><span>树</span>知识树</a><a href="{{ url_for('imports.imports_center') }}"><span>传</span>导入与导出</a>
       <a href="{{ url_for('projects.index') }}"><span>项</span>项目管理</a><a href="{{ url_for('app_settings') }}"><span>设</span>设置</a>
       <a href="{{ url_for('data_management.index') }}"><span>护</span>数据管理</a>
     </div>

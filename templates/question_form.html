@@ -12,6 +12,6 @@
 <div class="field"><label>来源</label><input name="source" value="{{ item.source if item else '' }}" placeholder="官方教材、课程章节或可靠链接"></div>
 <div class="field"><label>版本说明</label><input name="version_note" value="{{ item.version_note if item else '' }}" placeholder="例如 Comware 7"></div>
 <div class="field full"><label>拓扑图或截图</label><input type="file" name="image" accept="image/png,image/jpeg,image/gif,image/webp">{% if item and item.image_path %}<img class="question-image" src="{{ url_for('upload',name=item.image_path) }}">{% endif %}</div>
-<div class="field full actions"><button>保存题目</button><a class="button secondary" href="{{ url_for('questions') }}">取消</a></div>
+<div class="field full actions"><button>保存题目</button><a class="button secondary" href="{{ url_for('questions.index') }}">取消</a></div>
 </form>
 {% endblock %}{% block scripts %}<script>const t=document.querySelector('#question-type'),f=document.querySelector('#options-field');function sync(){f.style.display=['single','multiple'].includes(t.value)?'block':'none'}t.addEventListener('change',sync);sync();</script>{% endblock %}
