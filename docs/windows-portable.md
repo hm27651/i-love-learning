@@ -25,7 +25,7 @@ Portable 数据固定保存在程序目录下的 `data`：
 ## 构建
 
 ```powershell
-tools\build_portable_windows.ps1 -Python .venv\Scripts\python.exe
+tools\release\windows\build_portable_windows.ps1 -Python .venv\Scripts\python.exe
 ```
 
 产物：

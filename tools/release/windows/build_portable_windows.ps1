@@ -3,10 +3,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Root = Resolve-Path (Join-Path $PSScriptRoot "..")
+$Root = Resolve-Path (Join-Path $PSScriptRoot "..\..\..")
 Set-Location $Root
 
-& $Python -m pip install -r requirements-portable.txt --disable-pip-version-check
+& $Python -m pip install -r packaging\windows\requirements-portable.txt --disable-pip-version-check
 if ($LASTEXITCODE -ne 0) {
     throw "Failed to install Portable build dependencies."
 }
@@ -23,7 +23,7 @@ if (Test-Path -LiteralPath "$Archive.sha256") {
     Remove-Item -LiteralPath "$Archive.sha256" -Force
 }
 
-& $Python -m PyInstaller --clean --noconfirm I-Love-Learning.spec
+& $Python -m PyInstaller --clean --noconfirm packaging\windows\I-Love-Learning.spec
 if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller failed to build the Portable package."
 }

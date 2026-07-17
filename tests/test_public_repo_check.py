@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.check_public_repo import scan_repository
+from tools.safety.check_public_repo import scan_repository
 
 
 class PublicRepositoryCheckTests(unittest.TestCase):
@@ -73,10 +73,11 @@ class PublicRepositoryCheckTests(unittest.TestCase):
 
     def test_portable_build_configuration_is_safe_to_track(self):
         files = {
-            "I-Love-Learning.spec": "COLLECT(name='I-Love-Learning-Portable')\n",
+            "packaging/windows/I-Love-Learning.spec": "COLLECT(name='I-Love-Learning-Portable')\n",
             "portable_launcher.py": "print('launcher')\n",
-            "requirements-portable.txt": "-r requirements.txt\npyinstaller==6.14.2\n",
-            "tools/build_portable_windows.ps1": "Write-Host portable\n",
+            "packaging/windows/requirements-portable.txt": "-r ../../requirements.txt\npyinstaller==6.14.2\n",
+            "tools/release/windows/build_portable_windows.ps1": "Write-Host portable\n",
+            "tools/release/windows/smoke_portable_windows.ps1": "Write-Host smoke\n",
             "packaging/windows/README.txt": "portable readme\n",
             "packaging/windows/version.json": "{}\n",
             ".github/workflows/windows-portable.yml": "name: portable\n",

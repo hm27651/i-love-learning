@@ -4,12 +4,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Root = Resolve-Path (Join-Path $PSScriptRoot "..")
+$Root = Resolve-Path (Join-Path $PSScriptRoot "..\..\..")
 $PackageDir = Join-Path $Root "dist\I-Love-Learning-Portable"
 $Exe = Join-Path $PackageDir "I-Love-Learning.exe"
 
 if (-not (Test-Path -LiteralPath $Exe)) {
-    throw "Portable executable not found. Run tools\build_portable_windows.ps1 first."
+    throw "Portable executable not found. Run tools\release\windows\build_portable_windows.ps1 first."
 }
 
 $DataDir = Join-Path $env:TEMP ("i-love-learning-portable-test-" + [guid]::NewGuid().ToString("N"))

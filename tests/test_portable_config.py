@@ -14,20 +14,20 @@ class PortableConfigTests(unittest.TestCase):
         self.assertEqual(portable_launcher.local_url(), "http://127.0.0.1:23456")
 
     def test_pyinstaller_spec_uses_onedir_and_bundles_web_assets(self):
-        content = (ROOT / "I-Love-Learning.spec").read_text(encoding="utf-8")
+        content = (ROOT / "packaging" / "windows" / "I-Love-Learning.spec").read_text(encoding="utf-8")
         self.assertIn('name="I-Love-Learning-Portable"', content)
         self.assertIn('console=False', content)
-        self.assertIn('("templates", "templates")', content)
-        self.assertIn('("static", "static")', content)
+        self.assertIn('(str(ROOT / "templates"), "templates")', content)
+        self.assertIn('(str(ROOT / "static"), "static")', content)
         self.assertNotIn("onefile=True", content)
 
     def test_windows_build_script_creates_empty_data_directory(self):
-        content = (ROOT / "tools" / "build_portable_windows.ps1").read_text(encoding="utf-8")
+        content = (ROOT / "tools" / "release" / "windows" / "build_portable_windows.ps1").read_text(encoding="utf-8")
         self.assertIn('dist\\I-Love-Learning-Portable', content)
         self.assertIn('I-Love-Learning-Portable.zip', content)
         self.assertIn('Join-Path $PackageDir "data"', content)
-        self.assertIn("requirements-portable.txt", content)
-        self.assertIn("--noconfirm I-Love-Learning.spec", content)
+        self.assertIn("packaging\\windows\\requirements-portable.txt", content)
+        self.assertIn("--noconfirm packaging\\windows\\I-Love-Learning.spec", content)
         self.assertIn("PyInstaller failed", content)
 
     def test_portable_readme_preserves_data_on_upgrade(self):

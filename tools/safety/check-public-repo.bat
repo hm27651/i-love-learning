@@ -1,12 +1,12 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0..\.."
 
-set "PYTHON=%~dp0.venv\Scripts\python.exe"
+set "PYTHON=%CD%\.venv\Scripts\python.exe"
 if not exist "%PYTHON%" set "PYTHON=python"
 
 echo [1/3] Checking the Git index and complete history...
-"%PYTHON%" tools\check_public_repo.py
+"%PYTHON%" tools\safety\check_public_repo.py
 if errorlevel 1 goto :failed
 
 echo.

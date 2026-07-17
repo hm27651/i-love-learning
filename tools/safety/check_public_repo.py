@@ -152,7 +152,7 @@ def scan_repository(repo: Path, include_history: bool = True) -> list[Finding]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Check that a Git repository contains no local study data")
-    parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1], help="repository root")
+    parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2], help="repository root")
     parser.add_argument("--index-only", action="store_true", help="skip reachable-history inspection")
     return parser
 

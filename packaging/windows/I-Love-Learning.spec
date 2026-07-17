@@ -3,16 +3,16 @@
 from pathlib import Path
 
 
-ROOT = Path(SPECPATH).resolve()
+ROOT = Path(SPECPATH).resolve().parents[1]
 
 
 a = Analysis(
-    ["portable_launcher.py"],
+    [str(ROOT / "portable_launcher.py")],
     pathex=[str(ROOT)],
     binaries=[],
     datas=[
-        ("templates", "templates"),
-        ("static", "static"),
+        (str(ROOT / "templates"), "templates"),
+        (str(ROOT / "static"), "static"),
     ],
     hiddenimports=[
         "waitress",
