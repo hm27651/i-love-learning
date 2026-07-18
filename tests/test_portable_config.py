@@ -1,6 +1,7 @@
 import unittest
 import tempfile
 import json
+import os
 import sqlite3
 from pathlib import Path
 from unittest import mock
@@ -51,7 +52,9 @@ class PortableConfigTests(unittest.TestCase):
         self.assertNotIn("pywebview", base_requirements)
 
     def test_launcher_config_requires_first_open_mode_then_persists_choice(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("STUDY_DATA_DIR", None)
+            os.environ.pop("H3CSE_DATA_DIR", None)
             root = Path(temp_dir)
             first_state = portable_launcher.load_launcher_config(root)
             self.assertTrue(first_state["local_only"])
@@ -70,6 +73,16 @@ class PortableConfigTests(unittest.TestCase):
             self.assertEqual(saved_state["open_mode"], "web")
             self.assertEqual(Path(saved_state["data_path"]), selected)
             self.assertTrue(portable_launcher.launcher_config_path(root).is_file())
+
+    def test_launcher_uses_environment_data_directory_as_first_run_suggestion(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            external = root / "external-data"
+            with mock.patch.dict(os.environ, {"STUDY_DATA_DIR": str(external)}, clear=False):
+                state = portable_launcher.load_launcher_config(root)
+
+            self.assertEqual(Path(state["data_path"]), external)
+            self.assertIsNone(state["open_mode"])
 
     def test_legacy_launcher_config_is_read_then_saved_outside_data(self):
         with tempfile.TemporaryDirectory() as temp_dir:
