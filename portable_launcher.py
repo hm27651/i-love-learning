@@ -1433,6 +1433,10 @@ class BrowserFallbackLauncher:
 
 
 def serve(host: str, port: int) -> int:
+    version = load_version_info(portable_root())
+    os.environ.setdefault("STUDY_APP_VERSION", version["version"])
+    os.environ.setdefault("STUDY_BUILD_COMMIT", version["build_commit"])
+    os.environ.setdefault("STUDY_BUILD_TIME", version["build_time"])
     os.environ.setdefault("STUDY_DATA_DIR", str(data_dir()))
     os.environ.setdefault("STUDY_BACKUP_DIR", str(Path.home() / "Documents" / "I-Love-Learning-Backup"))
     os.environ["PORT"] = str(port)
