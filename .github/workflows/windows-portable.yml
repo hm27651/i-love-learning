@@ -40,14 +40,15 @@ jobs:
       - name: Verify package has no bundled database
         shell: pwsh
         run: |
-          if (Test-Path "dist/I-Love-Learning-Portable/data/h3cse.db") {
+          $packageDir = "build/portable-staging/I-Love-Learning-Portable"
+          if (Test-Path "$packageDir/data/h3cse.db") {
             throw "Portable package must not contain a prebuilt database"
           }
           $dataArtifacts = @()
-          if (Test-Path "dist/I-Love-Learning-Portable/data") {
-            $dataArtifacts += Get-ChildItem -Path "dist/I-Love-Learning-Portable/data" -Recurse -File -Include *.pdf,*.vce,*.doc,*.docx,*.xls,*.xlsx,*.csv,*.db,*.sqlite,*.sqlite3
+          if (Test-Path "$packageDir/data") {
+            $dataArtifacts += Get-ChildItem -Path "$packageDir/data" -Recurse -File -Include *.pdf,*.vce,*.doc,*.docx,*.xls,*.xlsx,*.csv,*.db,*.sqlite,*.sqlite3
           }
-          $dataArtifacts += Get-ChildItem -Path "dist/I-Love-Learning-Portable" -File -Include *.pdf,*.vce,*.doc,*.docx,*.xls,*.xlsx,*.csv,*.db,*.sqlite,*.sqlite3
+          $dataArtifacts += Get-ChildItem -Path $packageDir -File -Include *.pdf,*.vce,*.doc,*.docx,*.xls,*.xlsx,*.csv,*.db,*.sqlite,*.sqlite3
           if ($dataArtifacts) {
             $dataArtifacts | Select-Object FullName
             throw "Portable package contains a protected data artifact"

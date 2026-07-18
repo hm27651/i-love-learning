@@ -5,12 +5,16 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..\..\..")
-$PackageDir = Join-Path $Root "dist\I-Love-Learning-Portable"
+$Archive = Join-Path $Root "dist\I-Love-Learning-Portable.zip"
+$ExtractDir = Join-Path $env:TEMP ("i-love-learning-portable-package-" + [guid]::NewGuid().ToString("N"))
+$PackageDir = $ExtractDir
 $Exe = Join-Path $PackageDir "I-Love-Learning.exe"
 
-if (-not (Test-Path -LiteralPath $Exe)) {
-    throw "Portable executable not found. Run tools\release\windows\build_portable_windows.ps1 first."
+if (-not (Test-Path -LiteralPath $Archive)) {
+    throw "Portable archive not found. Run tools\release\windows\build_portable_windows.ps1 first."
 }
+Expand-Archive -LiteralPath $Archive -DestinationPath $ExtractDir
+if (-not (Test-Path -LiteralPath $Exe)) { throw "Portable archive does not contain I-Love-Learning.exe." }
 
 $DataDir = Join-Path $env:TEMP ("i-love-learning-portable-test-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
@@ -63,4 +67,5 @@ try {
     $env:STUDY_BACKUP_DIR = $oldBackup
     $env:PORT = $oldPort
     Remove-Item -LiteralPath $DataDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $ExtractDir -Recurse -Force -ErrorAction SilentlyContinue
 }

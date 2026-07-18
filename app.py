@@ -23,6 +23,7 @@ from services.core.project_service import (
 )
 from services.core.stats_service import readiness
 from services.questions.question_service import get_question, record_attempt
+from version_info import APP_VERSION
 from services.core.storage_service import (
     APP_PORT,
     BACKUP_DIR,
@@ -38,6 +39,8 @@ app.config.update(
     MAX_CONTENT_LENGTH=int(os.environ.get("STUDY_MAX_UPLOAD_MB", "50")) * 1024 * 1024,
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Strict",
+    APP_VERSION=os.environ.get("STUDY_APP_VERSION", APP_VERSION),
+    BUILD_COMMIT=os.environ.get("STUDY_BUILD_COMMIT", "development"),
 )
 configure_file_logging(app.logger, DATA_DIR)
 
@@ -121,6 +124,7 @@ def template_globals():
             "STATUS_NAMES": {"draft": "草稿", "verified": "已核验", "archived": "已归档"},
             "PROJECT_TYPE_NAMES": {"practice": "普通刷题", "exam_prep": "考试备考", "practical_certification": "实操认证"},
             "LETTERS": "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "today": date.today().isoformat(),
+            "APP_VERSION": app.config["APP_VERSION"], "BUILD_COMMIT": app.config["BUILD_COMMIT"],
             "current_project": project, "available_projects": projects, "current_modules": modules,
             "global_due_count": global_due, "csrf_token": csrf_token()}
 

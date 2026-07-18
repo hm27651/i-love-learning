@@ -15,14 +15,27 @@ class StudyAppTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temp = tempfile.TemporaryDirectory()
+        cls.original_study_data_dir = os.environ.get("STUDY_DATA_DIR")
+        cls.original_h3cse_data_dir = os.environ.get("H3CSE_DATA_DIR")
+        os.environ["STUDY_DATA_DIR"] = cls.temp.name
         os.environ["H3CSE_DATA_DIR"] = cls.temp.name
         cls.mod = importlib.import_module("app")
+        if cls.mod.DATA_DIR.resolve() != Path(cls.temp.name).resolve():
+            raise RuntimeError(f"测试数据目录隔离失败：{cls.mod.DATA_DIR}")
         cls.mod.app.config.update(TESTING=True)
         cls.mod.BACKUP_DIR = Path(cls.temp.name) / "backups"
 
     @classmethod
     def tearDownClass(cls):
         cls.temp.cleanup()
+        for name, value in (
+            ("STUDY_DATA_DIR", cls.original_study_data_dir),
+            ("H3CSE_DATA_DIR", cls.original_h3cse_data_dir),
+        ):
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
     def setUp(self):
         self.client = self.mod.app.test_client()
@@ -133,6 +146,11 @@ class StudyAppTests(unittest.TestCase):
             response = self.client.get(path)
             self.assertEqual(response.status_code, 200, path)
 
+    def test_sidebar_keeps_project_switcher_without_collapsed_initial_badge(self):
+        page = self.client.get("/").get_data(as_text=True)
+        self.assertIn('id="sidebar-project"', page)
+        self.assertNotIn("collapsed-project-pill", page)
+
     def test_sqlite_runtime_and_background_queue_are_shared(self):
         with self.mod.db() as conn:
             self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0], "wal")
@@ -143,6 +161,7 @@ class StudyAppTests(unittest.TestCase):
         response = self.client.get("/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["database"], "ok")
+        self.assertEqual(response.get_json()["version"], "2.0")
         self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
         self.assertEqual(response.headers["X-Frame-Options"], "SAMEORIGIN")
 

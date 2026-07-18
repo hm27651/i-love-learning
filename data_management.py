@@ -8,6 +8,8 @@ from pathlib import Path
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 
+from version_info import APP_VERSION
+
 
 def _intervals(conn: sqlite3.Connection) -> list[int]:
     row = conn.execute("SELECT value FROM settings WHERE key='intervals'").fetchone()
@@ -216,7 +218,13 @@ def create_data_management_blueprint(db_provider, current_project_fn, backup_fn,
                 integrity = conn.execute("PRAGMA quick_check").fetchone()[0]
                 schema = conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
             status = 200 if integrity == "ok" else 503
-            return {"status": "ok" if status == 200 else "degraded", "database": integrity, "schema": schema}, status
+            return {
+                "status": "ok" if status == 200 else "degraded",
+                "database": integrity,
+                "schema": schema,
+                "version": os.environ.get("STUDY_APP_VERSION", APP_VERSION),
+                "build_commit": os.environ.get("STUDY_BUILD_COMMIT", "development"),
+            }, status
         except sqlite3.Error:
             return {"status": "unavailable", "database": "error"}, 503
 

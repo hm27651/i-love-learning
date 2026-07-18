@@ -11,7 +11,7 @@ from pathlib import Path
 from werkzeug.utils import secure_filename
 
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = Path(os.environ.get("STUDY_DATA_DIR") or os.environ.get("H3CSE_DATA_DIR", BASE_DIR / "data"))
 UPLOAD_DIR = DATA_DIR / "uploads"
 DB_PATH = DATA_DIR / os.environ.get("STUDY_DB_NAME", "h3cse.db")

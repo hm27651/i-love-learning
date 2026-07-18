@@ -45,9 +45,6 @@
         <label for="sidebar-project">当前项目</label>
         <select id="sidebar-project" name="project_id" onchange="this.form.submit()">{% for p in available_projects %}<option value="{{ p.id }}" {{ 'selected' if p.id==current_project.id }}>{{ p.name }}</option>{% endfor %}</select>
       </form>
-      <button class="collapsed-project-pill" type="button" data-sidebar-toggle data-label="当前项目：{{ current_project.name }}" aria-label="展开侧栏并切换项目">
-        <span aria-hidden="true">{{ current_project.name[:1] }}</span>
-      </button>
       <nav class="side-nav" aria-label="主导航">
         <div class="nav-group">
           <div class="nav-label">学习</div>
@@ -74,7 +71,7 @@
       </nav>
       <div class="sidebar-foot">
         <button class="theme-toggle" type="button" data-theme-toggle data-label="切换主题"><span class="nav-icon">{{ nav_icon('theme') }}</span><span data-theme-label>跟随系统</span></button>
-        <p>个人学习工具<br>非官方考试标准</p>
+        <p>个人学习工具 · v{{ APP_VERSION }}<br>非官方考试标准</p>
       </div>
     </aside>
 
