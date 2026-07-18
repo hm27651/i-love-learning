@@ -1,4 +1,5 @@
 import unittest
+import tempfile
 from pathlib import Path
 
 import portable_launcher
@@ -19,6 +20,8 @@ class PortableConfigTests(unittest.TestCase):
         self.assertIn('console=False', content)
         self.assertIn('(str(ROOT / "templates"), "templates")', content)
         self.assertIn('(str(ROOT / "static"), "static")', content)
+        self.assertIn('"webview"', content)
+        self.assertIn('"webview.platforms.edgechromium"', content)
         self.assertNotIn("onefile=True", content)
 
     def test_windows_build_script_creates_empty_data_directory(self):
@@ -30,15 +33,35 @@ class PortableConfigTests(unittest.TestCase):
         self.assertIn("--noconfirm packaging\\windows\\I-Love-Learning.spec", content)
         self.assertIn("PyInstaller failed", content)
 
+    def test_portable_dependencies_include_gui_shell_only_for_windows_package(self):
+        portable_requirements = (ROOT / "packaging" / "windows" / "requirements-portable.txt").read_text(encoding="utf-8")
+        base_requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+        self.assertIn("pywebview", portable_requirements)
+        self.assertNotIn("pywebview", base_requirements)
+
+    def test_launcher_config_requires_first_open_mode_then_persists_choice(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            first_state = portable_launcher.load_launcher_config(root)
+            self.assertTrue(first_state["local_only"])
+            self.assertIsNone(first_state["open_mode"])
+
+            portable_launcher.save_launcher_config(root, local_only=False, open_mode="web")
+            saved_state = portable_launcher.load_launcher_config(root)
+            self.assertFalse(saved_state["local_only"])
+            self.assertEqual(saved_state["open_mode"], "web")
+
     def test_portable_readme_preserves_data_on_upgrade(self):
         content = (ROOT / "packaging" / "windows" / "README.txt").read_text(encoding="utf-8")
         self.assertIn("不要覆盖或删除 data", content)
         self.assertIn("ZIP 导入与导出", content)
         self.assertIn("不要把端口映射到公网", content)
+        self.assertIn("软件内打开（GUI）", content)
 
     def test_readme_keeps_windows_entrypoint_portable_only(self):
         content = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("双击 `I-Love-Learning.exe`", content)
+        self.assertIn("软件内打开（GUI）", content)
         self.assertIn("源码方式只用于开发调试", content)
         self.assertNotIn("start" + ".bat", content)
 

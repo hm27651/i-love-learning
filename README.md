@@ -28,11 +28,12 @@
 
 1. 下载 `I-Love-Learning-Portable.zip` 并完整解压。
 2. 双击 `I-Love-Learning.exe`。
-3. 默认使用“仅本机访问”；需要手机访问时，在启动器中切换为“允许同一局域网访问”。
+3. 首次启动时选择打开方式：“软件内打开（GUI）”或“浏览器打开（Web）”。
+4. 默认使用“仅本机访问”；需要手机访问时，在启动器中切换为“允许同一局域网访问”。
 
 Portable 包的数据保存在同级 `data` 目录。升级时只替换 `I-Love-Learning.exe` 和 `_internal`，保留 `data`；不要把运行中的 SQLite 数据库直接复制给别人，题库分享请使用软件内的 ZIP 导入与导出。详细说明见 [Windows Portable 使用与发布](docs/windows-portable.md)。
 
-运行期间电脑和启动器必须保持开启。软件没有账号与登录保护，**不要配置公网端口映射，也不要在不可信网络中运行**。未签名 Portable EXE 可能触发 Windows SmartScreen，首次运行时需要手动允许。
+运行期间电脑和启动器必须保持开启。软件没有账号与登录保护，**不要配置公网端口映射，也不要在不可信网络中运行**。GUI 模式依赖系统 Microsoft Edge WebView2 Runtime；如 GUI 初始化失败，可改用浏览器 Web 模式。未签名 Portable EXE 可能触发 Windows SmartScreen，首次运行时需要手动允许。
 
 ## Linux 部署
 

@@ -16,6 +16,8 @@ a = Analysis(
     ],
     hiddenimports=[
         "waitress",
+        "webview",
+        "webview.platforms.edgechromium",
         "pdfplumber",
         "docx",
         "openpyxl",
