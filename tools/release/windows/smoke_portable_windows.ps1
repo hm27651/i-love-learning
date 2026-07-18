@@ -47,7 +47,7 @@ try {
     if (-not $healthy) {
         throw "Portable executable did not pass /health"
     }
-    if ($health.version -ne $VersionInfo.version -or $health.commit -ne $VersionInfo.build_commit) {
+    if ($health.version -ne $VersionInfo.version -or $health.build_commit -ne $VersionInfo.build_commit) {
         throw "Portable /health version metadata does not match version.json."
     }
 
