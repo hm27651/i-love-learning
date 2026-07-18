@@ -59,7 +59,7 @@ class PortableConfigTests(unittest.TestCase):
             first_state = portable_launcher.load_launcher_config(root)
             self.assertTrue(first_state["local_only"])
             self.assertIsNone(first_state["open_mode"])
-            self.assertEqual(Path(first_state["data_path"]), root / "data")
+            self.assertEqual(Path(first_state["data_path"]), (root / "data").resolve())
 
             selected = root / "shared-data"
             portable_launcher.save_launcher_config(
@@ -71,7 +71,7 @@ class PortableConfigTests(unittest.TestCase):
             saved_state = portable_launcher.load_launcher_config(root)
             self.assertFalse(saved_state["local_only"])
             self.assertEqual(saved_state["open_mode"], "web")
-            self.assertEqual(Path(saved_state["data_path"]), selected)
+            self.assertEqual(Path(saved_state["data_path"]), selected.resolve())
             self.assertTrue(portable_launcher.launcher_config_path(root).is_file())
 
     def test_launcher_uses_environment_data_directory_as_first_run_suggestion(self):
@@ -81,7 +81,7 @@ class PortableConfigTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {"STUDY_DATA_DIR": str(external)}, clear=False):
                 state = portable_launcher.load_launcher_config(root)
 
-            self.assertEqual(Path(state["data_path"]), external)
+            self.assertEqual(Path(state["data_path"]), external.resolve())
             self.assertIsNone(state["open_mode"])
 
     def test_legacy_launcher_config_is_read_then_saved_outside_data(self):
