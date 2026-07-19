@@ -40,6 +40,14 @@ def configure_file_logging(logger: logging.Logger, data_dir: Path) -> None:
     logger.setLevel(logging.INFO)
 
 
+def close_file_logging(logger: logging.Logger, data_dir: Path) -> None:
+    target = (data_dir / "logs" / "app.log").resolve()
+    for handler in list(logger.handlers):
+        if isinstance(handler, RotatingFileHandler) and Path(handler.baseFilename) == target:
+            logger.removeHandler(handler)
+            handler.close()
+
+
 def configure_sqlite_connection(connection: sqlite3.Connection) -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys=ON")

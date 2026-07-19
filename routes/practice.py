@@ -8,7 +8,7 @@ from datetime import date
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 
-from app import db
+from services.core.runtime_service import db
 from services.core.common_service import json_object, now_iso
 from services.core.project_service import current_project, id_belongs_to_project
 from services.questions.question_service import (

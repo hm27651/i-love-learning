@@ -3,7 +3,8 @@ from __future__ import annotations
 from flask import flash, redirect, render_template, request, url_for
 
 from services.core.project_service import current_project, project_modules, project_settings, settings
-from services.core.storage_service import DATA_DIR, DB_PATH, lan_url
+from services.core.runtime_service import data_dir, db_path
+from services.core.storage_service import lan_url
 
 
 def register_settings_routes(app, db_provider, export_queue_provider):
@@ -57,7 +58,7 @@ def register_settings_routes(app, db_provider, export_queue_provider):
                 cfg=cfg,
                 project=project,
                 modules=project_modules(conn, project_id),
-                db_path=str(DB_PATH),
-                data_dir=str(DATA_DIR),
+                db_path=str(db_path()),
+                data_dir=str(data_dir()),
                 lan_url=lan_url(),
             )

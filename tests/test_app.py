@@ -17,8 +17,10 @@ class StudyAppTests(unittest.TestCase):
         cls.temp = tempfile.TemporaryDirectory()
         cls.original_study_data_dir = os.environ.get("STUDY_DATA_DIR")
         cls.original_h3cse_data_dir = os.environ.get("H3CSE_DATA_DIR")
+        cls.original_study_backup_dir = os.environ.get("STUDY_BACKUP_DIR")
         os.environ["STUDY_DATA_DIR"] = cls.temp.name
         os.environ["H3CSE_DATA_DIR"] = cls.temp.name
+        os.environ["STUDY_BACKUP_DIR"] = str(Path(cls.temp.name) / "backups")
         cls.mod = importlib.import_module("app")
         if cls.mod.DATA_DIR.resolve() != Path(cls.temp.name).resolve():
             raise RuntimeError(f"测试数据目录隔离失败：{cls.mod.DATA_DIR}")
@@ -27,10 +29,15 @@ class StudyAppTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        from app_runtime import close_file_logging
+
+        close_file_logging(cls.mod.app.logger, Path(cls.temp.name))
+        cls.mod.background_executor.shutdown(wait=True)
         cls.temp.cleanup()
         for name, value in (
             ("STUDY_DATA_DIR", cls.original_study_data_dir),
             ("H3CSE_DATA_DIR", cls.original_h3cse_data_dir),
+            ("STUDY_BACKUP_DIR", cls.original_study_backup_dir),
         ):
             if value is None:
                 os.environ.pop(name, None)
@@ -46,6 +53,8 @@ class StudyAppTests(unittest.TestCase):
             for key, value in self.mod.PROJECT_SETTING_DEFAULTS.items():
                 conn.execute("""INSERT INTO project_settings(project_id,key,value) VALUES (?,?,?)
                   ON CONFLICT(project_id,key) DO UPDATE SET value=excluded.value""", (self.project_id, key, value))
+            conn.execute("""INSERT INTO project_settings(project_id,key,value) VALUES (?,'onboarding_completed','1')
+              ON CONFLICT(project_id,key) DO UPDATE SET value='1'""", (self.project_id,))
             conn.execute("DELETE FROM attempts")
             conn.execute("DELETE FROM question_progress")
             conn.execute("DELETE FROM practice_sessions")
@@ -156,6 +165,91 @@ class StudyAppTests(unittest.TestCase):
             self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0], "wal")
             self.assertEqual(conn.execute("PRAGMA busy_timeout").fetchone()[0], 30000)
         self.assertIs(self.mod.import_queue.executor, self.mod.export_queue.executor)
+
+    def test_create_app_builds_an_isolated_runtime_without_route_back_imports(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            factory_app = self.mod.create_app(
+                {
+                    "TESTING": True,
+                    "SECRET_KEY": "factory-test",
+                    "STUDY_DATA_DIR": root / "data",
+                    "STUDY_DB_PATH": root / "data" / "factory.db",
+                    "STUDY_BACKUP_DIR": root / "backups",
+                }
+            )
+            try:
+                self.assertIsNot(factory_app, self.mod.app)
+                self.assertEqual(Path(factory_app.config["STUDY_DATA_DIR"]), (root / "data").resolve())
+                with factory_app.app_context():
+                    from services.core.runtime_service import db as runtime_db
+
+                    with runtime_db() as conn:
+                        self.assertEqual(conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0], 4)
+                        self.assertEqual(conn.execute("SELECT COUNT(*) FROM questions").fetchone()[0], 0)
+                for route_file in (Path(__file__).resolve().parents[1] / "routes").glob("*.py"):
+                    source = route_file.read_text(encoding="utf-8")
+                    self.assertNotIn("from app import", source, route_file.name)
+                    self.assertNotIn("import app as", source, route_file.name)
+            finally:
+                factory_app.extensions["study_background_executor"].shutdown(wait=True)
+                from app_runtime import close_file_logging
+
+                close_file_logging(factory_app.logger, root / "data")
+
+    def test_first_run_wizard_configures_project_modules_without_affecting_existing_data(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            factory_app = self.mod.create_app(
+                {
+                    "TESTING": True,
+                    "ONBOARDING_IN_TESTS": True,
+                    "SECRET_KEY": "onboarding-test",
+                    "STUDY_DATA_DIR": root / "data",
+                    "STUDY_DB_PATH": root / "data" / "onboarding.db",
+                    "STUDY_BACKUP_DIR": root / "backups",
+                }
+            )
+            try:
+                client = factory_app.test_client()
+                redirect_response = client.get("/")
+                self.assertEqual(redirect_response.status_code, 302)
+                self.assertTrue(redirect_response.headers["Location"].endswith("/welcome"))
+                page = client.get("/welcome")
+                self.assertEqual(page.status_code, 200)
+                self.assertIn("选择项目模板", page.get_data(as_text=True))
+
+                saved = client.post(
+                    "/welcome",
+                    data={
+                        "name": "网络认证",
+                        "project_type": "practical_certification",
+                        "start_date": "2026-07-19",
+                        "duration_weeks": "12",
+                        "practice_alias": "HCL实验",
+                    },
+                )
+                self.assertEqual(saved.status_code, 302)
+                with factory_app.app_context():
+                    from services.core.runtime_service import db as runtime_db
+
+                    with runtime_db() as conn:
+                        project = conn.execute("SELECT * FROM learning_projects").fetchone()
+                        modules = dict(conn.execute("SELECT module_key,enabled FROM project_modules"))
+                        completed = conn.execute(
+                            "SELECT value FROM project_settings WHERE key='onboarding_completed'"
+                        ).fetchone()["value"]
+                        self.assertEqual(project["name"], "网络认证")
+                        self.assertEqual(project["practice_alias"], "HCL实验")
+                        self.assertEqual(set(modules.values()), {1})
+                        self.assertEqual(completed, "1")
+                        self.assertEqual(conn.execute("SELECT COUNT(*) FROM questions").fetchone()[0], 0)
+                self.assertEqual(client.get("/mock").status_code, 200)
+            finally:
+                factory_app.extensions["study_background_executor"].shutdown(wait=True)
+                from app_runtime import close_file_logging
+
+                close_file_logging(factory_app.logger, root / "data")
 
     def test_health_and_security_headers(self):
         response = self.client.get("/health")

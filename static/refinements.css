@@ -1,4 +1,24 @@
 /* Small interaction refinements kept separate from the main visual system. */
+.welcome-shell { max-width: 980px; margin: 0 auto; }
+.welcome-intro { margin-bottom: 24px; }
+.template-picker { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.template-choice { margin: 0; cursor: pointer; }
+.template-choice > input { position: absolute; opacity: 0; pointer-events: none; }
+.template-choice > span { min-height: 156px; display: flex; flex-direction: column; gap: 8px; padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-2); transition: .16s; }
+.template-choice b { font-size: 17px; }
+.template-choice small { color: var(--muted); line-height: 1.55; }
+.template-choice em { margin-top: auto; color: var(--primary); font-size: 12px; font-style: normal; font-weight: 700; }
+.template-choice > input:checked + span { border-color: var(--primary); background: var(--primary-soft); box-shadow: inset 0 0 0 1px var(--primary); }
+.template-choice > input:focus-visible + span { outline: 3px solid color-mix(in srgb,var(--primary) 30%,transparent); outline-offset: 2px; }
+.welcome-next { display: flex; justify-content: space-between; align-items: center; gap: 18px; }
+.welcome-next p { margin: 5px 0 0; }
+.module-guide { padding: 16px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-2); }
+.module-guide-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 9px; margin-top: 11px; }
+.module-guide-grid span { display: grid; gap: 3px; padding: 10px 12px; border-radius: 10px; background: var(--surface); }
+.module-guide-grid small { color: var(--muted); }
+.module-guide p { margin: 11px 0 0; }
+@media(max-width:760px){.template-picker{grid-template-columns:1fr}.template-choice>span{min-height:0}.welcome-next{align-items:stretch;flex-direction:column}.welcome-next .actions{display:grid}.welcome-next button{width:100%}}
+@media(max-width:760px){.module-guide-grid{grid-template-columns:1fr}}
 select {
   appearance: none;
   -webkit-appearance: none;

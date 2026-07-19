@@ -40,7 +40,10 @@ tools\release\windows\smoke_portable_windows.ps1 -Python .venv\Scripts\python.ex
 - 工作区状态；
 - 公开仓库安全检查；
 - Python 语法；
-- 自动测试；
+- Ruff 正确性检查；
+- 自动测试与至少 65% 的分支覆盖率；
+- 运行时依赖漏洞审计；
+- 390px 移动端、侧栏与关键页面的视觉结构契约；
 - GitHub Actions 与 Portable 构建配置是否存在。
 
 它不会提交、推送、创建 Release 或上传资产。

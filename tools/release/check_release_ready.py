@@ -29,6 +29,9 @@ def existing_paths() -> list[str]:
     paths = [
         ".github/workflows/public-repository-check.yml",
         ".github/workflows/windows-portable.yml",
+        ".coveragerc",
+        "pyproject.toml",
+        "requirements-dev.txt",
         "tools/safety/check_public_repo.py",
         "tools/release/windows/build_portable_windows.ps1",
         "tools/release/windows/smoke_portable_windows.ps1",
@@ -43,6 +46,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="我爱学习发布前只读检查")
     parser.add_argument("--allow-dirty", action="store_true", help="允许存在未提交改动，仅用于开发中自测")
     parser.add_argument("--skip-tests", action="store_true", help="跳过自动测试，仅做快速检查")
+    parser.add_argument("--skip-audit", action="store_true", help="离线时跳过依赖漏洞查询，正式发布前不可使用")
     args = parser.parse_args(argv)
 
     branch = capture(["git", "branch", "--show-current"]) or "未知分支"
@@ -72,7 +76,8 @@ def main(argv: list[str] | None = None) -> int:
         [
             sys.executable,
             "-m",
-            "py_compile",
+            "compileall",
+            "-q",
             "app.py",
             "app_runtime.py",
             "data_management.py",
@@ -82,38 +87,25 @@ def main(argv: list[str] | None = None) -> int:
             "transfer_service.py",
             "portable_launcher.py",
             "version_info.py",
-            "services/core/common_service.py",
-            "services/core/project_service.py",
-            "services/core/session_service.py",
-            "services/core/stats_service.py",
-            "services/core/storage_service.py",
-            "services/questions/question_service.py",
-            "services/imports/import_service.py",
-            "services/knowledge/knowledge_common.py",
-            "services/knowledge/knowledge_duplicates.py",
-            "services/knowledge/knowledge_delete_service.py",
-            "services/transfer/transfer_common.py",
-            "services/transfer/export_service.py",
-            "services/transfer/share_package_service.py",
-            "routes/projects.py",
-            "routes/dashboard.py",
-            "routes/exports.py",
-            "routes/imports.py",
-            "routes/knowledge.py",
-            "routes/labs.py",
-            "routes/mock.py",
-            "routes/plans.py",
-            "routes/practice.py",
-            "routes/questions.py",
-            "routes/settings.py",
-            "routes/uploads.py",
+            "routes",
+            "services",
         ],
         title="Python 语法检查",
     )
+    run([sys.executable, "-m", "ruff", "check", "."], title="Ruff 正确性检查")
     if args.skip_tests:
         print("\n已按参数跳过自动测试。正式发布前仍建议运行完整测试。")
     else:
-        run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-v"], title="自动测试")
+        run([sys.executable, "-m", "coverage", "erase"], title="清理旧覆盖率数据")
+        run(
+            [sys.executable, "-m", "coverage", "run", "-m", "unittest", "discover", "-s", "tests", "-v"],
+            title="自动测试与覆盖率采集",
+        )
+        run([sys.executable, "-m", "coverage", "report", "--fail-under=65"], title="覆盖率门禁（至少 65%）")
+    if args.skip_audit:
+        print("\n已按参数跳过依赖漏洞查询。正式发布前必须联网重新运行。")
+    else:
+        run([sys.executable, "-m", "pip_audit", "-r", "requirements.txt"], title="运行依赖漏洞审计")
 
     print("\n检查完成。建议发布顺序：")
     print("1. git add 需要提交的源码、文档和配置")

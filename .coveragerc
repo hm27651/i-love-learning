@@ -1,0 +1,20 @@
+[run]
+branch = True
+source =
+    app
+    app_runtime
+    data_management
+    migrations
+    portable_launcher
+    routes
+    services
+
+[report]
+show_missing = True
+skip_covered = True
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+
+[html]
+directory = build/coverage-html

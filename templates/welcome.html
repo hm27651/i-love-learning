@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% block title %}首次设置 · I Love Learning{% endblock %}
+{% block content %}
+<section class="welcome-shell">
+  <div class="welcome-intro">
+    <div class="eyebrow">首次设置 · 约 1 分钟</div>
+    <h1>先告诉我，你准备学习什么</h1>
+    <p class="lead">模板只决定默认显示哪些模块。题库、练习、复习和学习进度始终保留，之后也能在项目管理中修改。</p>
+  </div>
+  <form method="post" class="stack">
+    <div class="card form-grid">
+      <div class="field full">
+        <label>学习项目名称</label>
+        <input name="name" required value="{{ project.name if project.name != '我的学习项目' else '' }}" placeholder="例如：H3CSE、软考、英语课程">
+      </div>
+      <div class="field full">
+        <label>选择项目模板</label>
+        <div class="template-picker">
+          {% for key, item in templates.items() %}
+          <label class="template-choice">
+            <input type="radio" name="project_type" value="{{ key }}" {{ 'checked' if key == 'practice' }}>
+            <span><b>{{ item.name }}</b><small>{{ item.summary }}</small><em>{{ item.modules }}</em></span>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="field"><label>开始日期</label><input type="date" name="start_date" value="{{ today }}"></div>
+      <div class="field"><label>计划周数</label><input type="number" name="duration_weeks" min="1" max="104" value="12"></div>
+      <div class="field full"><label>实践模块名称</label><input name="practice_alias" value="实践任务" placeholder="例如：HCL实验、编程练习"></div>
+    </div>
+    <div class="welcome-next card flat">
+      <div><b>设置完成后</b><p class="muted">先建立知识树，或前往“导入与导出”添加第一份题库。</p></div>
+      <div class="actions"><button type="submit">完成设置</button><button type="submit" name="action" value="skip" class="secondary">暂时跳过</button></div>
+    </div>
+  </form>
+</section>
+{% endblock %}

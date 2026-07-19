@@ -5,9 +5,82 @@ import unittest
 from pathlib import Path
 
 from migrations import migrate_database
+from services.core.migration_service import migrate_with_snapshot
 
 
 class MigrationTests(unittest.TestCase):
+    def test_safe_migration_creates_verified_pre_upgrade_snapshot(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            data_dir = root / "data"
+            backup_dir = root / "backups"
+            data_dir.mkdir()
+            db_path = data_dir / "h3cse.db"
+            conn = sqlite3.connect(db_path)
+            migrate_database(conn)
+            point_id = conn.execute("SELECT id FROM knowledge_points LIMIT 1").fetchone()[0]
+            conn.execute(
+                """INSERT INTO questions(id,knowledge_point_id,type,stem,options_json,answer_json,
+                  explanation,difficulty,status,created_at,updated_at)
+                  VALUES (42,?,'single','snapshot question','[\"A\",\"B\"]','[\"A\"]','',2,
+                  'verified','2026-01-01','2026-01-01')""",
+                (point_id,),
+            )
+            for index in (
+                "ix_chapters_subject",
+                "ix_points_chapter",
+                "ix_questions_point_status",
+                "ix_attempts_question_time",
+                "ix_attempts_session",
+            ):
+                conn.execute(f"DROP INDEX {index}")
+            conn.execute("DELETE FROM schema_migrations WHERE version=4")
+            conn.execute("INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES (3,'2026-01-01')")
+            conn.commit()
+            try:
+                result = migrate_with_snapshot(
+                    conn,
+                    data_dir=data_dir,
+                    db_path=db_path,
+                    backup_dir=backup_dir,
+                )
+                conn.commit()
+                self.assertEqual(result["before"], 3)
+                self.assertEqual(result["after"], 4)
+                self.assertEqual(result["integrity"], "ok")
+                self.assertEqual(result["foreign_key_errors"], 0)
+                snapshot_db = Path(result["snapshot"]) / "h3cse.db"
+                self.assertTrue(snapshot_db.is_file())
+                snapshot = sqlite3.connect(snapshot_db)
+                try:
+                    self.assertEqual(snapshot.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+                    self.assertEqual(snapshot.execute("SELECT id FROM questions").fetchone()[0], 42)
+                    self.assertEqual(snapshot.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0], 3)
+                finally:
+                    snapshot.close()
+            finally:
+                conn.close()
+
+    def test_fresh_database_does_not_create_migration_snapshot(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            data_dir = root / "data"
+            backup_dir = root / "backups"
+            data_dir.mkdir()
+            db_path = data_dir / "h3cse.db"
+            conn = sqlite3.connect(db_path)
+            result = migrate_with_snapshot(
+                conn,
+                data_dir=data_dir,
+                db_path=db_path,
+                backup_dir=backup_dir,
+            )
+            conn.commit()
+            conn.close()
+            self.assertEqual(result["before"], 0)
+            self.assertIsNone(result["snapshot"])
+            self.assertFalse(backup_dir.exists())
+
     def test_fresh_database_contains_no_user_content(self):
         conn = sqlite3.connect(":memory:")
         version = migrate_database(conn)

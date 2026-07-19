@@ -8,21 +8,45 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from flask import current_app, has_app_context
 from werkzeug.utils import secure_filename
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
-DATA_DIR = Path(os.environ.get("STUDY_DATA_DIR") or os.environ.get("H3CSE_DATA_DIR", BASE_DIR / "data"))
+
+
+def resolve_data_dir() -> Path:
+    return Path(os.environ.get("STUDY_DATA_DIR") or os.environ.get("H3CSE_DATA_DIR", BASE_DIR / "data"))
+
+
+def resolve_db_path(data_root: Path | None = None) -> Path:
+    return (data_root or resolve_data_dir()) / os.environ.get("STUDY_DB_NAME", "h3cse.db")
+
+
+def resolve_backup_dir() -> Path:
+    return Path(os.environ.get("STUDY_BACKUP_DIR") or (Path.home() / "Documents" / "I-Love-Learning-Backup"))
+
+
+DATA_DIR = resolve_data_dir()
 UPLOAD_DIR = DATA_DIR / "uploads"
-DB_PATH = DATA_DIR / os.environ.get("STUDY_DB_NAME", "h3cse.db")
-BACKUP_DIR = Path(os.environ.get("STUDY_BACKUP_DIR") or (Path.home() / "Documents" / "I-Love-Learning-Backup"))
+DB_PATH = resolve_db_path(DATA_DIR)
+BACKUP_DIR = resolve_backup_dir()
 APP_PORT = int(os.environ.get("PORT", "23456"))
 ALLOWED_IMAGES = {"png", "jpg", "jpeg", "gif", "webp"}
 
 
-def ensure_data_dirs() -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+def active_data_dir() -> Path:
+    if has_app_context() and current_app.config.get("STUDY_DATA_DIR"):
+        return Path(current_app.config["STUDY_DATA_DIR"])
+    return resolve_data_dir()
+
+
+def ensure_data_dirs(data_root: Path | None = None) -> Path:
+    root = data_root or active_data_dir()
+    root.mkdir(parents=True, exist_ok=True)
+    uploads = root / "uploads"
+    uploads.mkdir(parents=True, exist_ok=True)
+    return uploads
 
 
 def backup_data_snapshot(
@@ -57,15 +81,16 @@ def backup_data_snapshot(
     return target
 
 
-def save_image(file) -> str | None:
+def save_image(file, *, upload_dir: Path | None = None) -> str | None:
     if not file or not file.filename:
         return None
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
     if ext not in ALLOWED_IMAGES:
         raise ValueError("仅支持 PNG、JPG、GIF、WEBP 图片")
-    ensure_data_dirs()
+    uploads = upload_dir or ensure_data_dirs()
+    uploads.mkdir(parents=True, exist_ok=True)
     name = f"{uuid.uuid4().hex}_{secure_filename(file.filename)}"
-    file.save(UPLOAD_DIR / name)
+    file.save(uploads / name)
     return name
 
 

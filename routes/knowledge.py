@@ -4,10 +4,7 @@ import sqlite3
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
 
-import app as app_module
-from app import (
-    db,
-)
+from services.core.runtime_service import backup_dir, db, db_path
 from knowledge_service import (
     KnowledgeDeleteError,
     analyze_delete,
@@ -163,8 +160,8 @@ def delete():
                 target_id=target_id,
                 merge_conflicts=request.form.get("merge_conflicts") == "1",
                 confirmation_name=request.form.get("confirmation_name", ""),
-                db_path=app_module.DB_PATH,
-                backup_dir=app_module.BACKUP_DIR,
+                db_path=db_path(),
+                backup_dir=backup_dir(),
             )
         except KnowledgeDeleteError as exc:
             flash(str(exc), "error")
@@ -182,5 +179,4 @@ def delete():
     if result["target"]:
         return redirect(url_for("knowledge.index", focus_kind=kind, focus_id=result["target"]["id"]))
     return redirect(url_for("knowledge.index"))
-
 

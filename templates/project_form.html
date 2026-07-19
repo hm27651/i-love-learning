@@ -1,6 +1,15 @@
 {% extends 'base.html' %}{% block title %}{{ '编辑' if item else '新建' }}学习项目 · I Love Learning{% endblock %}{% block content %}
 <div class="page-head"><div><h1>{{ '编辑学习项目' if item else '新建学习项目' }}</h1><div class="lead">模板提供合适的模块默认值，保存后仍可按项目调整。</div></div></div>
 <form method="post" class="card form-grid">
+  <div class="field full module-guide">
+    <b>模板与模块的关系</b>
+    <div class="module-guide-grid">
+      <span><strong>普通刷题</strong><small>仅核心刷题功能</small></span>
+      <span><strong>考试备考</strong><small>增加模拟、计划和准备度</small></span>
+      <span><strong>实操认证</strong><small>再增加实践任务</small></span>
+    </div>
+    <p class="muted">未启用的模块只会从导航隐藏，题库和学习数据不会被删除；下面可以单独调整。</p>
+  </div>
   <div class="field"><label>项目名称</label><input name="name" required value="{{ item.name if item else '' }}" placeholder="例如：H3CSE、软考、英语课程"></div>
   <div class="field"><label>项目模板</label><select name="project_type" id="project-type">{% for key,label in PROJECT_TYPE_NAMES.items() %}<option value="{{ key }}" {{ 'selected' if item and item.project_type==key }}>{{ label }}</option>{% endfor %}</select></div>
   <div class="field"><label>开始日期</label><input type="date" name="start_date" value="{{ item.start_date if item else today }}"></div>

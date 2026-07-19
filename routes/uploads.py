@@ -3,7 +3,7 @@ from __future__ import annotations
 from flask import abort, send_from_directory
 
 from services.core.project_service import current_project
-from services.core.storage_service import UPLOAD_DIR
+from services.core.runtime_service import data_dir
 
 
 def register_upload_routes(app, db_provider):
@@ -20,4 +20,4 @@ def register_upload_routes(app, db_provider):
             ).fetchone()
             if not allowed:
                 abort(404)
-        return send_from_directory(UPLOAD_DIR, name)
+        return send_from_directory(data_dir() / "uploads", name)

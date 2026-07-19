@@ -10,8 +10,7 @@ from pathlib import Path
 from flask import Blueprint, abort, flash, redirect, render_template, request, send_file, session, url_for
 from werkzeug.utils import secure_filename
 
-from app import DATA_DIR, DB_PATH, db
-import app as app_module
+from services.core.runtime_service import data_dir, db, db_path, import_queue
 from services.core.common_service import now_iso
 from services.imports.import_service import PARSER_VERSION, SUPPORTED_TYPES, commit_job
 from migrations import PROJECT_MODULE_DEFAULTS, create_project
@@ -53,7 +52,7 @@ def package_mapping_suggestions(conn, project_id, package):
 
 @bp.route("/imports", methods=["GET", "POST"])
 def imports_center():
-    cleanup_expired_exports(DB_PATH, DATA_DIR)
+    cleanup_expired_exports(db_path(), data_dir())
     with db() as conn:
         project = current_project(conn); project_id = project["id"]
         if request.method == "POST":
@@ -70,11 +69,11 @@ def imports_center():
             ext = Path(original_name).suffix.lower().lstrip(".")
             document_id = uuid.uuid4().hex
             job_id = uuid.uuid4().hex
-            originals = DATA_DIR / "imports" / "originals"
+            originals = data_dir() / "imports" / "originals"
             originals.mkdir(parents=True, exist_ok=True)
             safe_name = secure_filename(original_name) or f"document.{ext or 'bin'}"
             stored_relative = Path("imports") / "originals" / f"{document_id}_{safe_name}"
-            stored_path = DATA_DIR / stored_relative
+            stored_path = data_dir() / stored_relative
             uploaded.save(stored_path)
             digest = hashlib.sha256(stored_path.read_bytes()).hexdigest()
             status = "queued" if ext in SUPPORTED_TYPES else "failed"
@@ -90,7 +89,7 @@ def imports_center():
             session["import_job_ids"] = jobs
             conn.commit()
             if status == "queued":
-                app_module.import_queue.submit_detect(job_id)
+                import_queue().submit_detect(job_id)
             flash("原文件已保存，正在探测格式" if status == "queued" else message, "success" if status == "queued" else "error")
             return redirect(url_for("imports.import_detail", job_id=job_id))
         personal_ids = session.get("import_job_ids", [])
@@ -178,7 +177,7 @@ def import_target(job_id):
           message='等待解析',updated_at=? WHERE id=?""", (project_id, subject_id, now, job_id))
         conn.commit()
         session["current_project_id"] = project_id
-        app_module.import_queue.submit_parse(job_id)
+        import_queue().submit_parse(job_id)
     flash("目标科目已确认，正在完整解析", "success")
     return redirect(url_for("imports.import_detail", job_id=job_id))
 
@@ -215,7 +214,7 @@ def import_mapping(job_id):
           message='等待解析分享包',updated_at=? WHERE id=?""",
           (json.dumps({"subjects": result}, ensure_ascii=False), now_iso(), job_id))
         conn.commit()
-        app_module.import_queue.submit_parse(job_id)
+        import_queue().submit_parse(job_id)
     flash("科目映射已确认，正在解析分享包", "success")
     return redirect(url_for("imports.import_detail", job_id=job_id))
 
@@ -229,9 +228,9 @@ def import_retry(job_id):
                      (25 if job["subject_id"] or package_ready else 0, now_iso(), job_id))
         conn.commit()
         if job["subject_id"] or package_ready:
-            app_module.import_queue.submit_parse(job_id)
+            import_queue().submit_parse(job_id)
         else:
-            app_module.import_queue.submit_detect(job_id)
+            import_queue().submit_detect(job_id)
     flash("已从保存的原文件重新排队", "success")
     return redirect(url_for("imports.import_detail", job_id=job_id))
 
@@ -239,7 +238,7 @@ def import_retry(job_id):
 @bp.post("/imports/<job_id>/commit")
 def import_commit(job_id):
     with db() as conn:
-        job = import_job_for_browser(conn, job_id)
+        import_job_for_browser(conn, job_id)
         candidates = conn.execute("SELECT * FROM import_candidates WHERE job_id=? ORDER BY item_index", (job_id,)).fetchall()
         decisions = {candidate["id"]: request.form.get(f"decision_{candidate['id']}") for candidate in candidates
                      if request.form.get(f"decision_{candidate['id']}")}
@@ -250,7 +249,7 @@ def import_commit(job_id):
                 decisions,
                 request.form.get("duplicate_action", "skip"),
                 request.form.get("status_strategy", "draft"),
-                DATA_DIR,
+                data_dir(),
             )
         except ValueError as exc:
             conn.rollback()

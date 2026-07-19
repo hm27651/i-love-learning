@@ -5,7 +5,7 @@ from datetime import date
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, session, url_for
 
-from app import DATA_DIR, backup_data_snapshot, db
+from services.core.runtime_service import backup_data_snapshot, data_dir, db
 from services.core.common_service import now_iso
 from migrations import PROJECT_MODULE_DEFAULTS, create_project
 from services.core.project_service import current_project, module_enabled, project_modules, seed_project_weeks
@@ -152,7 +152,7 @@ def delete(project_id):
             session.pop("current_project_id", None)
             current_project(conn)
         for stored in document_paths:
-            path = DATA_DIR / stored
+            path = data_dir() / stored
             if path.is_file():
                 path.unlink()
     flash(f"项目已永久删除；删除前备份保存在 {backup}", "success")

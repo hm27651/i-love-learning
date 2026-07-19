@@ -16,7 +16,6 @@ from datetime import datetime
 from pathlib import Path
 
 import pdfplumber
-from PIL import Image
 
 
 QUESTION_RE = re.compile(r"(?m)^(?:QUESTION|问题)\s+(\d+)[ \t]*$")

@@ -139,6 +139,71 @@ class PortableConfigTests(unittest.TestCase):
             finally:
                 portable_launcher.close_launcher_logging(Path(temp_dir))
 
+    def test_launcher_api_click_chain_forwards_actions_and_normalizes_failures(self):
+        launcher = mock.Mock()
+        launcher.logger = mock.Mock()
+        launcher.state.return_value = {"ok": True, "status": "未启动"}
+        launcher.start_service.return_value = {"ok": True, "message": "正在启动"}
+        launcher.stop_service.return_value = {"ok": True, "message": "已停止"}
+        api = portable_launcher.LauncherApi(launcher)
+
+        self.assertEqual(api.get_state()["status"], "未启动")
+        payload = {"openMode": "gui", "localOnly": True, "dataPath": "D:/study-data"}
+        self.assertTrue(api.start_service(payload)["ok"])
+        launcher.start_service.assert_called_once_with(payload)
+        self.assertTrue(api.stop_service()["ok"])
+        launcher.stop_service.assert_called_once_with()
+        self.assertTrue(api.back_to_settings()["ok"])
+        launcher.show_launch_page.assert_called_once_with()
+
+        launcher.start_service.side_effect = RuntimeError("受控启动错误")
+        failure = api.start_service(payload)
+        self.assertFalse(failure["ok"])
+        self.assertIn("受控启动错误", failure["message"])
+        self.assertEqual(launcher.status, "启动失败")
+        launcher.logger.exception.assert_called()
+
+    def test_launcher_start_click_persists_mode_and_starts_both_monitors(self):
+        for open_mode, local_only, expected_host in (("gui", True, "127.0.0.1"), ("web", False, "0.0.0.0")):
+            with self.subTest(open_mode=open_mode), tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+                portable_launcher, "portable_root", return_value=Path(temp_dir)
+            ), mock.patch.dict(os.environ, {"STUDY_DATA_DIR": str(Path(temp_dir) / "data")}, clear=False):
+                launcher = portable_launcher.Launcher()
+                try:
+                    fake_threads = []
+
+                    def build_thread(*, target, args=(), daemon=False):
+                        thread = mock.Mock(target=target, args=args, daemon=daemon)
+                        fake_threads.append((target, args, daemon, thread))
+                        return thread
+
+                    with mock.patch.object(portable_launcher, "is_port_available", return_value=True), mock.patch.object(
+                        launcher, "_start_process"
+                    ) as start_process, mock.patch.object(launcher, "show_control_page") as show_control, mock.patch.object(
+                        portable_launcher.threading, "Thread", side_effect=build_thread
+                    ):
+                        result = launcher.start_service(
+                            {
+                                "openMode": open_mode,
+                                "localOnly": local_only,
+                                "dataPath": str(Path(temp_dir) / "data"),
+                            }
+                        )
+
+                    self.assertTrue(result["ok"])
+                    start_process.assert_called_once_with(expected_host)
+                    show_control.assert_called_once()
+                    self.assertEqual(len(fake_threads), 2)
+                    self.assertTrue(all(item[2] for item in fake_threads))
+                    self.assertTrue(all(item[3].start.called for item in fake_threads))
+                    targets = {item[0].__name__ for item in fake_threads}
+                    self.assertEqual(targets, {"_watch_process", "_wait_until_ready"})
+                    saved = portable_launcher.load_launcher_config(Path(temp_dir))
+                    self.assertEqual(saved["open_mode"], open_mode)
+                    self.assertEqual(saved["local_only"], local_only)
+                finally:
+                    portable_launcher.close_launcher_logging(Path(temp_dir))
+
     def test_launcher_log_writes_to_data_logs(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

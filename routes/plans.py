@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from flask import Blueprint, flash, redirect, render_template, request, url_for
 
-from app import db
+from services.core.runtime_service import db
 from services.core.project_service import current_project, module_disabled, module_enabled, seed_project_weeks
 
 

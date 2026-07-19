@@ -5,8 +5,7 @@ from pathlib import Path
 
 from flask import Blueprint, abort, flash, redirect, request, send_file, url_for
 
-from app import DATA_DIR, db
-import app as app_module
+from services.core.runtime_service import data_dir, db, export_queue
 from services.core.common_service import now_iso
 from services.core.project_service import current_project
 from transfer_service import count_export_questions
@@ -63,7 +62,7 @@ def export_create():
           progress,message,question_count,created_at,updated_at) VALUES (?,?,?,?,?,'queued','queued',0,?,?,?,?)""",
           (job_id, project_id, scope_type, scope_id, include_drafts, "等待生成分享包", count, now, now))
         conn.commit()
-        app_module.export_queue.submit(job_id)
+        export_queue().submit(job_id)
     flash(f"已创建导出任务，预计包含 {count} 道题", "success")
     return redirect(url_for("imports.imports_center", tab="export"))
 
@@ -97,8 +96,8 @@ def export_status_api(job_id):
 def _export_file_path(job) -> Path | None:
     if not job["stored_path"]:
         return None
-    root = (DATA_DIR / "exports").resolve()
-    path = (DATA_DIR / job["stored_path"]).resolve()
+    root = (data_dir() / "exports").resolve()
+    path = (data_dir() / job["stored_path"]).resolve()
     return path if path.parent == root else None
 
 
@@ -127,7 +126,7 @@ def export_retry(job_id):
           stored_path=NULL,filename=NULL,size_bytes=0,sha256='',warning_json='[]',error_json='[]',
           completed_at=NULL,expires_at=NULL,updated_at=? WHERE id=?""", (now_iso(), job_id))
         conn.commit()
-        app_module.export_queue.submit(job_id)
+        export_queue().submit(job_id)
     flash("导出任务已重新排队", "success")
     return redirect(url_for("imports.imports_center", tab="export"))
 
