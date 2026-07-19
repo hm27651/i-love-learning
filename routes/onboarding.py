@@ -58,7 +58,7 @@ def onboarding_required(conn) -> bool:
 def require_onboarding():
     if current_app.config.get("TESTING") and not current_app.config.get("ONBOARDING_IN_TESTS"):
         return None
-    if request.endpoint in {"onboarding.welcome", "health", "static"}:
+    if request.endpoint in {"onboarding.welcome", "data_management.health", "static"}:
         return None
     with db() as conn:
         if onboarding_required(conn):

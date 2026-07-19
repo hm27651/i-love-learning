@@ -212,6 +212,9 @@ class StudyAppTests(unittest.TestCase):
             )
             try:
                 client = factory_app.test_client()
+                health = client.get("/health")
+                self.assertEqual(health.status_code, 200)
+                self.assertEqual(health.get_json()["database"], "ok")
                 redirect_response = client.get("/")
                 self.assertEqual(redirect_response.status_code, 302)
                 self.assertTrue(redirect_response.headers["Location"].endswith("/welcome"))
