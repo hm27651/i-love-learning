@@ -13,6 +13,7 @@ from difflib import SequenceMatcher
 from pathlib import Path, PurePath
 
 from app_runtime import connect_database
+from services.imports.pdf_question_parser import parse_pdf as parse_h3c_pdf
 from transfer_service import PACKAGE_VERSION, inspect_share_package
 
 
@@ -119,8 +120,6 @@ def parse_structured_text(text: str) -> tuple[list[dict], list[dict]]:
 
 
 def parse_pdf(path: Path) -> tuple[list[dict], list[dict]]:
-    from tools.import_pdf_questions import parse_pdf as parse_h3c_pdf
-
     records, anomalies, _ = parse_h3c_pdf(path)
     result = []
     for item in records:

@@ -51,6 +51,13 @@ class PortableConfigTests(unittest.TestCase):
         self.assertIn("pywebview", portable_requirements)
         self.assertNotIn("pywebview", base_requirements)
 
+    def test_pdf_import_parser_is_a_runtime_service_not_a_development_tool(self):
+        source = (ROOT / "services" / "imports" / "import_service.py").read_text(encoding="utf-8")
+        parser = ROOT / "services" / "imports" / "pdf_question_parser.py"
+        self.assertTrue(parser.is_file())
+        self.assertIn("services.imports.pdf_question_parser", source)
+        self.assertNotIn("tools.import_pdf_questions", source)
+
     def test_launcher_config_requires_first_open_mode_then_persists_choice(self):
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("STUDY_DATA_DIR", None)
