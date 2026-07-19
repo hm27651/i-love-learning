@@ -45,6 +45,13 @@ class ContainerConfigTests(unittest.TestCase):
         self.assertNotIn("STUDY_SECRET", content)
         self.assertNotIn("PASSWORD", content)
 
+    def test_linux_backup_check_completes_first_run_before_data_management(self):
+        content = (ROOT / ".github" / "workflows" / "public-repository-check.yml").read_text(encoding="utf-8")
+        welcome = content.index('"http://127.0.0.1:${HOST_PORT}/welcome"')
+        data_management = content.index('"http://127.0.0.1:${HOST_PORT}/data-management"')
+        self.assertLess(welcome, data_management)
+        self.assertIn('--data-urlencode "action=skip"', content)
+
 
 if __name__ == "__main__":
     unittest.main()

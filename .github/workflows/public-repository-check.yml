@@ -94,6 +94,10 @@ jobs:
           test "$(sudo stat -c '%a' "$DATA_PATH/.secret_key")" = "600"
           test "$(sudo stat -c '%a' "$DATA_PATH/h3cse.db")" = "600"
           secret_before="$(sudo sha256sum "$DATA_PATH/.secret_key" | cut -d' ' -f1)"
+          curl --fail --silent --cookie-jar /tmp/study.cookies "http://127.0.0.1:${HOST_PORT}/welcome" >/tmp/onboarding.html
+          onboarding_token="$(sed -n 's/.*<meta name="csrf-token" content="\([^"]*\)">.*/\1/p' /tmp/onboarding.html | head -n1)"
+          test -n "$onboarding_token"
+          curl --fail --silent --location --cookie /tmp/study.cookies --cookie-jar /tmp/study.cookies --data-urlencode "_csrf_token=${onboarding_token}" --data-urlencode "action=skip" "http://127.0.0.1:${HOST_PORT}/welcome" >/tmp/onboarding-result.html
           curl --fail --silent --cookie-jar /tmp/study.cookies "http://127.0.0.1:${HOST_PORT}/data-management" >/tmp/data-management.html
           csrf_token="$(sed -n 's/.*<meta name="csrf-token" content="\([^"]*\)">.*/\1/p' /tmp/data-management.html | head -n1)"
           test -n "$csrf_token"
