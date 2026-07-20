@@ -38,3 +38,38 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: 发布全局 UI 重构 v2.0
+
+**Date**: 2026-07-20
+**Task**: 发布全局 UI 重构 v2.0
+**Branch**: `main`
+
+### Summary
+
+更新 README 与新版截图，重建 v2.0 标签和 Release，替换 Portable 资产并完成远端 SHA-256 校验。
+
+### Main Changes
+
+- Detailed change bullets were not supplied; see the summary above.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9163c8c` | (see git log) |
+| `f4ce028` | (see git log) |
+| `6b8534d` | (see git log) |
+
+### Testing
+
+- Validation was not recorded for this session.
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
