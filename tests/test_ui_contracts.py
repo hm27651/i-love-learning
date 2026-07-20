@@ -19,6 +19,8 @@ class UiContractTests(unittest.TestCase):
         cls.style = compact((ROOT / "static" / "style.css").read_text(encoding="utf-8"))
         cls.sidebar = compact((ROOT / "static" / "sidebar.css").read_text(encoding="utf-8"))
         cls.refinements = compact((ROOT / "static" / "refinements.css").read_text(encoding="utf-8"))
+        cls.ui_system = compact((ROOT / "static" / "ui-system.css").read_text(encoding="utf-8"))
+        cls.app_js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
 
     def test_390px_mobile_visual_contract(self):
         self.assertIn('name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"', self.base)
@@ -60,6 +62,36 @@ class UiContractTests(unittest.TestCase):
         for label in ("今天", "章节练习", "错题复习", "题库", "知识树", "设置"):
             self.assertIn(f'data-label="{label}', self.base)
             self.assertIn(f'aria-label="{label}', self.base)
+
+    def test_semantic_ui_layer_keeps_accessibility_contracts(self):
+        self.assertIn('filename=\'ui-system.css\'', self.base)
+        self.assertIn("--color-action:", self.ui_system)
+        self.assertIn("--sidebar-width:72px", self.ui_system)
+        self.assertIn("min-height:44px", self.ui_system)
+        self.assertIn(".containera:not(.button):not(.card){min-height:44px", self.ui_system)
+        self.assertIn("@media(prefers-reduced-motion:reduce)", self.ui_system)
+        self.assertIn('aria-controls="mobile-more-sheet"', self.base)
+        self.assertIn("sheetFocusableElements", self.app_js)
+        self.assertIn("event.key !== 'Tab'", self.app_js)
+
+    def test_mobile_data_locations_wrap_long_paths(self):
+        template = (ROOT / "templates" / "data_management.html").read_text(encoding="utf-8")
+        self.assertGreaterEqual(template.count("data-location-heading"), 2)
+        self.assertIn(".data-location-heading{flex-wrap:wrap", self.ui_system)
+        self.assertIn(".data-location-heading.muted{overflow-wrap:anywhere", self.ui_system)
+
+    def test_knowledge_tree_uses_nested_icon_cards(self):
+        template = (ROOT / "templates" / "knowledge.html").read_text(encoding="utf-8")
+        for kind in ("subject", "chapter", "point"):
+            self.assertIn(f"'{kind}':", self.base)
+            self.assertIn(f"nav_icon('{kind}')", template)
+        self.assertIn(".knowledge-subject{border:1pxsolidvar(--color-border);border-radius:var(--radius-md)", self.ui_system)
+        self.assertIn(".knowledge-chapter{border:1pxsolidvar(--color-border);border-radius:11px", self.ui_system)
+        self.assertIn(".knowledge-point{min-height:56px", self.ui_system)
+        self.assertIn(".knowledge-level-mark.point-mark", self.ui_system)
+
+    def test_project_card_separates_metrics_from_actions(self):
+        self.assertIn(".project-card>.actions{margin-top:var(--space-6);}", self.ui_system)
 
 
 if __name__ == "__main__":

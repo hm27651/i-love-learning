@@ -57,15 +57,51 @@
 
   const sheet = document.querySelector('.more-sheet');
   const backdrop = document.querySelector('.sheet-backdrop');
+  const moreToggle = document.querySelector('[data-more-toggle]');
+  let sheetReturnFocus = null;
+  function sheetFocusableElements() {
+    if (!sheet) return [];
+    return [...sheet.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+      .filter(element => !element.hidden && element.getClientRects().length);
+  }
   function setSheet(open) {
     if (!sheet || !backdrop) return;
     sheet.classList.toggle('open', open);
     backdrop.classList.toggle('open', open);
     sheet.setAttribute('aria-hidden', String(!open));
+    moreToggle?.setAttribute('aria-expanded', String(open));
     document.body.style.overflow = open ? 'hidden' : '';
+    if (open) {
+      sheetReturnFocus = document.activeElement;
+      requestAnimationFrame(() => sheet.querySelector('[data-more-close]')?.focus());
+    } else if (sheetReturnFocus instanceof HTMLElement) {
+      sheetReturnFocus.focus();
+    }
   }
   document.querySelectorAll('[data-more-toggle]').forEach(el => el.addEventListener('click', () => setSheet(true)));
   document.querySelectorAll('[data-more-close]').forEach(el => el.addEventListener('click', () => setSheet(false)));
+  document.addEventListener('keydown', event => {
+    if (!sheet?.classList.contains('open')) return;
+    if (event.key === 'Escape') {
+      setSheet(false);
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = sheetFocusableElements();
+    if (!focusable.length) {
+      event.preventDefault();
+      sheet.focus();
+      return;
+    }
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
 
   document.querySelectorAll('[data-confirm]').forEach(el => el.addEventListener('click', event => {
     if (!confirm(el.dataset.confirm)) event.preventDefault();

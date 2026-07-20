@@ -160,6 +160,32 @@ class StudyAppTests(unittest.TestCase):
         self.assertIn('id="sidebar-project"', page)
         self.assertNotIn("collapsed-project-pill", page)
 
+    def test_ui_shell_uses_grouped_navigation_and_one_dashboard_primary_action(self):
+        page = self.client.get("/").get_data(as_text=True)
+        self.assertIn('/static/ui-system.css', page)
+        self.assertIn('class="skip-link"', page)
+        self.assertIn('<div class="nav-label">学习</div>', page)
+        self.assertIn('<div class="nav-label">内容</div>', page)
+        self.assertIn('<div class="nav-label">系统</div>', page)
+        self.assertIn('aria-controls="mobile-more-sheet"', page)
+        self.assertEqual(page.count('class="button today-primary"'), 1)
+
+    def test_completed_week_plan_falls_back_to_free_practice_action(self):
+        question_id = self.add_question()
+        with self.mod.db() as conn:
+            conn.execute(
+                "UPDATE weekly_plans SET question_goal=1,lab_goal=0 WHERE project_id=? AND week_no=1",
+                (self.project_id,),
+            )
+            conn.execute(
+                "INSERT INTO attempts(question_id,mode,is_correct,answered_at) VALUES (?,?,?,?)",
+                (question_id, "practice", 1, self.mod.now_iso()),
+            )
+        page = self.client.get("/").get_data(as_text=True)
+        self.assertIn("开始一组章节练习", page)
+        self.assertNotIn("推进第 1 周目标", page)
+        self.assertEqual(page.count('class="button today-primary"'), 1)
+
     def test_sqlite_runtime_and_background_queue_are_shared(self):
         with self.mod.db() as conn:
             self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0], "wal")

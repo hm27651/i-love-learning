@@ -4,7 +4,7 @@
 
 <div class="grid cols-2">
   <section class="card">
-    <div class="split"><div><h2>30 天答题趋势</h2><div class="muted">绿色为正确，红色为错误；主观题自评只计总量。</div></div></div>
+    <div class="split"><div><h2>30 天答题趋势</h2><div class="muted">蓝色为正确，红色为错误；主观题自评只计总量。</div></div></div>
     <div class="trend-chart">{% for x in trend %}<div class="trend-column" data-tip="{{ x.label }} · 共 {{ x.total }} / 错 {{ x.wrong }}"><i style="height:{{ x.correct_height }}%"></i><i class="wrong" style="height:{{ x.wrong_height }}%"></i></div>{% endfor %}</div>
     <div class="chart-legend"><span><i></i>正确</span><span class="wrong"><i></i>错误</span></div>
   </section>

@@ -2,7 +2,7 @@
 <div class="page-head"><div><div class="eyebrow">安全与维护</div><h1>学习数据管理</h1><p class="lead">只清理练习、复习和模拟记录，不会删除题目、知识树、导入原件或项目设置。</p></div><form method="post" action="{{ url_for('data_management.create_backup') }}"><button>立即完整备份</button></form></div>
 
 <section class="card section-gap">
-  <div class="split"><div><h2>数据位置</h2><p class="muted">这些路径只用于查看和备份判断，页面不会自动迁移、同步或清空数据。</p></div><span class="badge verified">{{ data_locations.runtime_mode }}</span></div>
+  <div class="split data-location-heading"><div><h2>数据位置</h2><p class="muted">这些路径只用于查看和备份判断，页面不会自动迁移、同步或清空数据。</p></div><span class="badge verified">{{ data_locations.runtime_mode }}</span></div>
   <div class="data-location-grid section-gap">
     <div><small>当前数据目录</small><code>{{ data_locations.data_dir }}</code></div>
     <div><small>SQLite 数据库</small><code>{{ data_locations.database }}</code></div>
@@ -14,7 +14,7 @@
   <div class="danger-note section-gap">公开提交 GitHub 时不要暂存 data、backups、题库、build 或 dist。要让 Portable 沿用现有题库，请在服务停止后复制完整 data 目录。</div>
 </section>
 
-<section class="card section-gap"><div class="split"><div><h2>备份位置</h2><p class="muted">{{ backup_dir }}</p></div><span class="badge verified">仓库外保存</span></div><p class="muted">恢复时请先停止软件，再用备份中的完整 data 目录替换当前 data 目录。</p></section>
+<section class="card section-gap"><div class="split data-location-heading"><div><h2>备份位置</h2><p class="muted">{{ backup_dir }}</p></div><span class="badge verified">仓库外保存</span></div><p class="muted">恢复时请先停止软件，再用备份中的完整 data 目录替换当前 data 目录。</p></section>
 
 <section class="card section-gap">
   <div class="split"><div><h2>学习会话</h2><p class="muted">先筛选和核对，再选择需要清理的会话。清理前会自动创建完整备份。</p></div></div>

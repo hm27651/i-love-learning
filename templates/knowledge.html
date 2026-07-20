@@ -18,7 +18,7 @@
     <article class="knowledge-subject" id="knowledge-subject-{{ s.id }}" data-tree-node data-kind="subject" data-tree-key="subject:{{ s.id }}" data-own-search="{{ s.name }} {{ s.exam_code or '' }}">
       <div class="knowledge-node-row knowledge-subject-row">
         <button class="knowledge-node-toggle" type="button" data-tree-toggle aria-expanded="false" aria-controls="subject-branch-{{ s.id }}">
-          <span class="knowledge-chevron" aria-hidden="true">›</span><span class="knowledge-level-mark" aria-hidden="true">科</span>
+          <span class="knowledge-chevron" aria-hidden="true">›</span><span class="knowledge-level-mark subject-mark" aria-hidden="true">{{ nav_icon('subject') }}</span>
           <span class="knowledge-node-title"><strong data-node-label data-source-label="{{ s.name }}">{{ s.name }}</strong>{% if s.exam_code %}<small data-node-label data-source-label="{{ s.exam_code }}">{{ s.exam_code }}</small>{% else %}<small>未设置科目代码</small>{% endif %}</span>
         </button>
         <div class="knowledge-node-meta">
@@ -34,7 +34,7 @@
           <section class="knowledge-chapter" id="knowledge-chapter-{{ c.id }}" data-tree-node data-kind="chapter" data-tree-key="chapter:{{ c.id }}" data-parent-key="subject:{{ s.id }}" data-own-search="{{ c.name }}">
             <div class="knowledge-node-row knowledge-chapter-row">
               <button class="knowledge-node-toggle" type="button" data-tree-toggle aria-expanded="false" aria-controls="chapter-branch-{{ c.id }}">
-                <span class="knowledge-chevron" aria-hidden="true">›</span><span class="knowledge-level-mark chapter-mark" aria-hidden="true">章</span>
+                <span class="knowledge-chevron" aria-hidden="true">›</span><span class="knowledge-level-mark chapter-mark" aria-hidden="true">{{ nav_icon('chapter') }}</span>
                 <span class="knowledge-node-title"><strong data-node-label data-source-label="{{ c.name }}">{{ c.name }}</strong><small>{{ s.name }}</small></span>
               </button>
               <div class="knowledge-node-meta">
@@ -48,7 +48,7 @@
               <div class="knowledge-point-list">
                 {% for p in points if p.chapter_id==c.id %}
                 <div class="knowledge-point" id="knowledge-point-{{ p.id }}" data-tree-node data-kind="point" data-tree-key="point:{{ p.id }}" data-parent-key="chapter:{{ c.id }}" data-own-search="{{ p.name }}">
-                  <div class="knowledge-point-name"><span class="knowledge-point-dot" aria-hidden="true"></span><strong data-node-label data-source-label="{{ p.name }}">{{ p.name }}</strong></div>
+                  <div class="knowledge-point-name"><span class="knowledge-level-mark point-mark" aria-hidden="true">{{ nav_icon('point') }}</span><strong data-node-label data-source-label="{{ p.name }}">{{ p.name }}</strong></div>
                   <div class="knowledge-node-meta">
                     <a class="question-count {{ 'is-empty' if not p.question_count }}" href="{{ url_for('questions.index',knowledge_point_id=p.id) }}" title="查看本知识点题目">{{ p.question_count }} 题</a>
                     <button class="knowledge-more" type="button" aria-label="编辑知识点 {{ p.name }}" data-node-action="edit" data-kind="point" data-node-id="{{ p.id }}" data-node-name="{{ p.name }}" data-parent-name="{{ s.name }} / {{ c.name }}" data-impact-url="{{ url_for('knowledge.delete_impact',kind='point',node_id=p.id) }}">•••</button>

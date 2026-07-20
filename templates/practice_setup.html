@@ -4,7 +4,7 @@
 <section class="card active-session-card"><div><div class="eyebrow">{{ '已暂停' if active_session.row.status=='paused' else '进行中' }}</div><h2>你有一组尚未结束的章节练习</h2><p class="muted">已推进 {{ active_session.done }} / {{ active_session.total }} 题。继续后会回到保存的题目和答案状态。</p></div><div class="actions"><a class="button" href="{{ url_for('practice.run',session_id=active_session.row.id) }}">继续练习</a><button class="danger" type="button" data-terminate-open="#practice-setup-terminate">终止旧会话</button></div></section>
 <dialog class="session-dialog" id="practice-setup-terminate" data-terminate-dialog><form method="post" action="{{ url_for('practice.terminate',session_id=active_session.row.id) }}"><h2>终止这组章节练习？</h2><p>已完成的答题与掌握度记录会保留，剩余题目不再继续。</p><input type="hidden" name="takeover" value="1"><div class="dialog-actions"><button class="secondary" type="button" data-terminate-close>取消</button><button class="danger">确认终止</button></div></form></dialog>
 {% else %}
-<div class="grid cols-3" style="margin-bottom:18px">
+<div class="grid cols-3 practice-presets">
   <button type="button" class="card quick-card" data-count-preset="10"><span class="quick-icon">10</span><span><b>轻量热身</b><small>约 8–12 分钟</small></span></button>
   <button type="button" class="card quick-card" data-count-preset="20"><span class="quick-icon">20</span><span><b>标准练习</b><small>适合一个知识块</small></span></button>
   <button type="button" class="card quick-card" data-count-preset="50"><span class="quick-icon">50</span><span><b>集中强化</b><small>用于阶段复盘</small></span></button>
