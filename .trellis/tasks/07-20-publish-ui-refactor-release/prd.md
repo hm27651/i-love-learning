@@ -29,7 +29,7 @@
 - [x] Release 标签、源码提交、标题、正文和 Portable 资产属于同一版本状态。
 - [x] 远端 ZIP 的 SHA-256 为 `5BA14C9D7E014A50BEBD45B967811B650D85CE4C11736E75DD53F8375CD1E40D`。
 - [x] 发布级检查、公开仓库检查和 Portable 烟测通过，Git 工作区最终干净。
-- [ ] `v2.0^{}`、`origin/main` 与本地 `main` 最终指向同一提交，Release 仍使用标题“我爱学习 v2.0”（任务归档与会话记录提交后最终核验）。
+- [x] `v2.0^{}`、`origin/main` 与本地 `main` 最终指向同一提交，Release 仍使用标题“我爱学习 v2.0”（任务归档与会话记录提交后最终核验）。
 
 ## Out of Scope
 
